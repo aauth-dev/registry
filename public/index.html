@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AAuth Registry</title>
+    <meta
+      name="description"
+      content="A directory of AAuth resources. List is open to any agent; contributing requires a verified person."
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0d12;
+        --panel: #151823;
+        --line: #262a38;
+        --text: #e7e9ee;
+        --muted: #9aa0ad;
+        --accent: #6ea8fe;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      header {
+        border-bottom: 1px solid var(--line);
+        padding: 20px 24px;
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+      header h1 { font-size: 20px; margin: 0; }
+      header .tag { color: var(--muted); font-size: 13px; }
+      main { max-width: 760px; margin: 0 auto; padding: 24px; }
+      #status { margin-bottom: 20px; min-height: 38px; display: flex; align-items: center; gap: 12px; }
+      .who { color: var(--muted); }
+      .who b { color: var(--text); }
+      .btn {
+        background: #fff; color: #111; border: 0; border-radius: 8px;
+        padding: 9px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+      }
+      .btn:disabled { opacity: .6; cursor: default; }
+      .link { background: none; border: 0; color: var(--accent); cursor: pointer; font-size: 13px; }
+      .hidden { display: none; }
+      #add-section {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+        padding: 16px; margin-bottom: 24px;
+      }
+      #add-section h2 { font-size: 14px; margin: 0 0 10px; color: var(--muted); font-weight: 600; }
+      .add-row { display: flex; gap: 8px; }
+      #issuer {
+        flex: 1; background: #0e1018; border: 1px solid var(--line); border-radius: 8px;
+        color: var(--text); padding: 9px 12px; font-size: 14px;
+      }
+      #add-result { color: var(--muted); font-size: 13px; margin: 8px 0 0; min-height: 18px; }
+      .consent-box {
+        background: var(--panel); border: 1px solid var(--accent); border-radius: 10px;
+        padding: 16px; margin-bottom: 20px; text-align: center;
+      }
+      .consent-box p { margin: 0 0 10px; }
+      .card {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+        padding: 14px 16px; margin-bottom: 12px;
+      }
+      .card-head { display: flex; align-items: center; gap: 10px; }
+      .name { font-weight: 600; color: var(--text); text-decoration: none; font-size: 15px; }
+      .name:hover { color: var(--accent); }
+      .badge {
+        font-size: 11px; color: var(--muted); border: 1px solid var(--line);
+        border-radius: 20px; padding: 2px 9px;
+      }
+      .desc { margin: 6px 0; }
+      .host { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
+      .muted { color: var(--muted); }
+      .small { font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>AAuth Registry</h1>
+      <span class="tag">a directory of AAuth resources · list is open · contributing needs a verified person</span>
+    </header>
+    <main>
+      <div id="status"></div>
+      <div id="consent" class="hidden"></div>
+      <section id="add-section" class="hidden">
+        <h2>Add a resource</h2>
+        <div class="add-row">
+          <input id="issuer" type="url" placeholder="https://your-resource.example" autocomplete="off" />
+          <button id="add-btn" class="btn">Add</button>
+        </div>
+        <p id="add-result"></p>
+      </section>
+      <div id="resources"><p class="muted">Loading…</p></div>
+    </main>
+    <script src="/registry.js"></script>
+  </body>
+</html>

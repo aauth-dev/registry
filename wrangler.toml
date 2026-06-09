@@ -6,6 +6,12 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 ORIGIN = "https://registry.aauth.dev"
 
+# Human web UI: static assets in public/ (index.html + bundled registry.js,
+# built by `npm run build:client`). Assets are served first; unmatched paths
+# fall through to the Worker (the API + well-known routes).
+[assets]
+directory = "public"
+
 # Source of truth: one key per resource (resource:{host} -> RegistryEntry).
 [[kv_namespaces]]
 binding = "REGISTRY_KV"

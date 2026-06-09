@@ -4,8 +4,11 @@
   "private": true,
   "description": "AAuth Registry — a directory of AAuth resources, gated by agent token",
   "scripts": {
+    "build:client": "esbuild client/registry.js --bundle --format=iife --platform=browser --target=es2022 --outfile=public/registry.js",
+    "watch:client": "esbuild client/registry.js --bundle --format=iife --platform=browser --target=es2022 --outfile=public/registry.js --watch",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "predeploy": "npm run build:client",
     "generate-key": "node scripts/generate-key.mjs",
     "typecheck": "tsc --noEmit",
     "test:deploy": "bash scripts/test.sh"
@@ -16,6 +19,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250410.0",
+    "esbuild": "^0.28.0",
     "typescript": "^5.7.0",
     "wrangler": "^4.0.0"
   }
