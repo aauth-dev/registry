@@ -6,6 +6,9 @@ import { getEntry, getIndex, putEntry, reconcile } from './store'
 import { buildEntry, fetchResourceMetadata, normalizeHost } from './validate'
 import { llmsTxt, robotsTxt, sitemapXml } from './discoverability'
 import { emit, emitBackground } from './events'
+import { DEFAULT_PS, mintAgentToken, resolveAgentLocal, verifySigHwk } from './ap'
+import { handleIdentity } from './login'
+import { clearSessionCookie, readSession } from './session'
 import { ADMIN_PROVIDERS_KEY, type Env } from './types'
 
 type HonoEnv = { Bindings: Env }
@@ -28,9 +31,15 @@ app.onError((err, c) => {
   return c.json({ error: 'internal error' }, 500)
 })
 
-app.use('*', cors())
+// Expose AAuth response headers so browser JS (the human UI's web-agent)
+// can read the resource_token from the 401 challenge.
+app.use('*', cors({
+  exposeHeaders: ['AAuth-Requirement', 'Accept-Signature', 'Signature-Error'],
+}))
 
 // ── Well-known ──
+// The registry is both a resource (the /resources API) and an agent
+// provider (it mints browser web-agent tokens for the human UI).
 
 app.get('/.well-known/aauth-resource.json', (c) => {
   const origin = c.env.ORIGIN
@@ -44,10 +53,79 @@ app.get('/.well-known/aauth-resource.json', (c) => {
   })
 })
 
+app.get('/.well-known/aauth-agent.json', (c) => {
+  const origin = c.env.ORIGIN
+  return c.json({
+    issuer: origin,
+    jwks_uri: `${origin}/.well-known/jwks.json`,
+    client_name: 'AAuth Registry',
+  })
+})
+
 app.get('/.well-known/jwks.json', async (c) => {
   const publicJwk = await getPublicJWK(c.env.SIGNING_KEY)
   return c.json({ keys: [publicJwk] })
 })
+
+// ── Agent provider: bootstrap a browser web-agent ──
+
+// POST /bootstrap — the browser signs sig=hwk with a fresh key; the
+// registry mints a web-agent token bound to it, carrying a `ps` claim
+// (default Hellō) for the human login flow.
+app.post('/bootstrap', async (c) => {
+  const verified = await verifySigHwk(c)
+  if (verified instanceof Response) return verified
+
+  let body: { ps?: string }
+  try {
+    body = verified.rawBody.length ? JSON.parse(verified.rawBody) : {}
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400)
+  }
+
+  let psUrl = DEFAULT_PS
+  if (body.ps) {
+    try {
+      const u = new URL(body.ps)
+      if (u.protocol !== 'https:') return c.json({ error: 'ps must be HTTPS' }, 400)
+      psUrl = body.ps
+    } catch {
+      return c.json({ error: 'invalid ps URL' }, 400)
+    }
+  }
+
+  const host = new URL(c.env.ORIGIN).hostname
+  const { local, fresh } = await resolveAgentLocal(c.env, verified.jkt)
+  const aauthSub = `aauth:${local}@${host}`
+  const token = await mintAgentToken(c.env, { aauthSub, psUrl, jwk: verified.publicJwk })
+
+  emit(c, {
+    event: 'aauth.registry.agent_token_minted',
+    msg: fresh ? 'bootstrap: new web-agent' : 'bootstrap: existing web-agent',
+    agent: aauthSub,
+    agent_jkt: verified.jkt,
+    ps: psUrl,
+    fresh,
+  })
+
+  return c.json(token)
+})
+
+// ── Human login (identity resource) ──
+
+// GET /auth/identity — whoami-style: agent token → resource_token
+// challenge; auth token (from the PS) → set session cookie + claims.
+app.get('/auth/identity', (c) => handleIdentity(c))
+
+// GET /auth/session — current human session, if any.
+app.get('/auth/session', async (c) => {
+  const session = await readSession(c)
+  if (!session) return c.json({ logged_in: false }, 200)
+  return c.json({ logged_in: true, sub: session.sub, email: session.email, name: session.name, ps: session.ps })
+})
+
+// POST /auth/logout — clear the session cookie.
+app.post('/auth/logout', (c) => c.json({ status: 'logged_out' }, 200, { 'Set-Cookie': clearSessionCookie() }))
 
 // ── Agent-discoverability ──
 
@@ -161,7 +239,14 @@ app.post('/resources', async (c) => {
     return c.json({ status: 'metadata_invalid', errors: result.errors }, 422)
   }
 
-  const entry = buildEntry(result.metadata, { agent: auth.sub, ap: auth.ap })
+  // If the caller is a logged-in human (web UI), attribute the submission
+  // to their Hellō identity as well as the web-agent.
+  const session = await readSession(c)
+  const entry = buildEntry(result.metadata, {
+    agent: auth.sub,
+    ap: auth.ap,
+    ...(session ? { user: session.sub } : {}),
+  })
   await putEntry(c.env, entry)
 
   emit(c, {
@@ -169,6 +254,7 @@ app.post('/resources', async (c) => {
     msg: `added ${norm.host}`,
     agent: auth.sub,
     ap: auth.ap,
+    user: session?.sub,
     host: norm.host,
     access_mode: entry.access_mode,
   })

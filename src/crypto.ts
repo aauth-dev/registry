@@ -28,6 +28,16 @@ export async function importSigningKey(jwkJson: string): Promise<CryptoKey> {
 import { calculateThumbprint } from '@hellocoop/httpsig'
 export { calculateThumbprint as computeJwkThumbprint }
 
+// Strip a public JWK down to the fields that belong in a cnf claim —
+// drops any private material (d), key_ops, ext, alg.
+export function sanitizeCnfJwk(jwk: JsonWebKey): JsonWebKey {
+  if (jwk.kty === 'OKP') return { kty: 'OKP', crv: jwk.crv, x: jwk.x }
+  if (jwk.kty === 'EC') return { kty: 'EC', crv: jwk.crv, x: jwk.x, y: jwk.y }
+  if (jwk.kty === 'RSA') return { kty: 'RSA', n: jwk.n, e: jwk.e }
+  const { d: _d, key_ops: _ops, ext: _ext, alg: _alg, ...rest } = jwk as unknown as Record<string, unknown>
+  return rest as unknown as JsonWebKey
+}
+
 export async function getPublicJWK(jwkJson: string): Promise<JsonWebKey & { kid: string }> {
   const jwk = JSON.parse(jwkJson)
   const { d: _d, key_ops: _ops, ext: _ext, ...rest } = jwk

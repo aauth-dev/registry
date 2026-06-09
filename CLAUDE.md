@@ -57,13 +57,23 @@ Until `CLOUDFLARE_API_TOKEN` is set, the Action fails; a one-off
 
 | Endpoint | Auth | Purpose |
 |----------|------|---------|
-| `GET /.well-known/aauth-resource.json` | none | Self-metadata (`access_mode: agent-token`) |
-| `GET /.well-known/jwks.json` | none | Public key |
+| `GET /.well-known/aauth-resource.json` | none | Resource self-metadata (`access_mode: agent-token`) |
+| `GET /.well-known/aauth-agent.json` | none | Agent-provider self-metadata |
+| `GET /.well-known/jwks.json` | none | Public key (shared by both roles) |
 | `GET /robots.txt` · `/sitemap.xml` · `/llms.txt` | none | Discoverability — keep in sync with routes |
+| `POST /bootstrap` | sig=hwk | Mint a browser web-agent token (AP role); `ps` defaults to Hellō |
+| `GET /auth/identity` | agent/auth token | Login: agent token → resource_token challenge; auth token → set session |
+| `GET /auth/session` | session cookie | Current human session or `{logged_in:false}` |
+| `POST /auth/logout` | — | Clear session cookie |
 | `GET /resources` | agent token | List (R2 index, ETag) |
 | `GET /resources/{host}` | agent token | Single entry (KV) |
-| `POST /resources` | agent token | Add by issuer → 201 / 200 / 422 |
+| `POST /resources` | agent token (+ session → `submitted_by.user`) | Add by issuer → 201 / 200 / 422 |
 | `POST /admin/reconcile` | agent token from `admin:providers` AP allowlist | Manual reconcile |
+
+**Phase B** (AP + human login): `src/ap.ts` (bootstrap/mint), `src/login.ts`
+(identity resource, whoami-style auth-token flow vs Hellō PS), `src/session.ts`
+(signed session cookie). Server side done; the browser UI (`public/`, ported
+from playground's client) is still to come.
 
 ## Cloudflare setup (one-time, outside this repo)
 
