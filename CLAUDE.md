@@ -2,18 +2,24 @@
 
 ## Deployment
 
-**Do not run `wrangler deploy` manually.** Cloudflare Workers Builds is
-connected to this repo and auto-deploys on every push to `main`. The
-build runs `npm install`, then `npx wrangler deploy`.
+**Deploy is via GitHub Actions** (`.github/workflows/deploy.yml`):
+push to `main` runs `cloudflare/wrangler-action` (`npm ci` → `wrangler
+deploy`). Requires a `CLOUDFLARE_API_TOKEN` repo secret (Workers Scripts
+edit token) — set it under repo Settings → Secrets → Actions, else the
+workflow fails.
 
 To ship a change:
 
 1. Commit locally.
 2. `git push origin main`.
-3. Verify (usually live within a minute):
+3. Watch the deploy: `gh run watch` (or `gh run list`).
+4. Verify (usually live within a minute):
    ```bash
    curl -s https://registry.aauth.dev/.well-known/aauth-resource.json | jq .
    ```
+
+Until `CLOUDFLARE_API_TOKEN` is set, the Action fails; a one-off
+`npx wrangler deploy` from a local machine with CF auth is the fallback.
 
 ## Local development
 
