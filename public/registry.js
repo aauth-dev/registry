@@ -1274,7 +1274,7 @@
     const pub = await publicJwk(kp);
     const hasBody = body != null;
     const components = hasBody ? ["@method", "@authority", "@path", "content-type", "signature-key"] : ["@method", "@authority", "@path", "signature-key"];
-    const { response } = await (0, import_httpsig.fetch)(url, {
+    return (0, import_httpsig.fetch)(url, {
       method,
       headers: hasBody ? { "Content-Type": "application/json", ...headers } : headers,
       body: hasBody ? body : void 0,
@@ -1283,12 +1283,11 @@
       signatureKey: { type: "jwt", jwt },
       components
     });
-    return response;
   }
   async function bootstrap() {
     const kp = await getKeyPair();
     const pub = await publicJwk(kp);
-    const { response } = await (0, import_httpsig.fetch)(`${ORIGIN}/bootstrap`, {
+    const response = await (0, import_httpsig.fetch)(`${ORIGIN}/bootstrap`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ps: PS_DEFAULT }),

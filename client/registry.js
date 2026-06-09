@@ -79,7 +79,8 @@ async function signedFetch(url, { method = 'GET', body, jwt, headers = {} } = {}
   const components = hasBody
     ? ['@method', '@authority', '@path', 'content-type', 'signature-key']
     : ['@method', '@authority', '@path', 'signature-key']
-  const { response } = await sigFetch(url, {
+  // sigFetch returns a plain Response unless returnSent is set.
+  return sigFetch(url, {
     method,
     headers: hasBody ? { 'Content-Type': 'application/json', ...headers } : headers,
     body: hasBody ? body : undefined,
@@ -88,14 +89,13 @@ async function signedFetch(url, { method = 'GET', body, jwt, headers = {} } = {}
     signatureKey: { type: 'jwt', jwt },
     components,
   })
-  return response
 }
 
 // POST /bootstrap signed sig=hwk → mint + store an agent token.
 async function bootstrap() {
   const kp = await getKeyPair()
   const pub = await publicJwk(kp)
-  const { response } = await sigFetch(`${ORIGIN}/bootstrap`, {
+  const response = await sigFetch(`${ORIGIN}/bootstrap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ps: PS_DEFAULT }),
