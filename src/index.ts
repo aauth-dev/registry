@@ -6,7 +6,7 @@ import { getEntry, getIndex, putEntry, reconcile } from './store'
 import { buildEntry, fetchResourceMetadata, normalizeHost } from './validate'
 import { llmsTxt, robotsTxt, sitemapXml } from './discoverability'
 import { emit, emitBackground } from './events'
-import type { Env } from './types'
+import { ADMIN_PROVIDERS_KEY, type Env } from './types'
 
 type HonoEnv = { Bindings: Env }
 
@@ -182,12 +182,34 @@ app.post('/resources', async (c) => {
 })
 
 // ── Admin: manual reconcile (also runs daily via cron) ──
-
+//
+// Authorized via AAuth, not a shared secret: the caller must present a valid
+// agent token issued by an agent provider in the KV allowlist
+// (ADMIN_PROVIDERS_KEY) — any agent from a listed AP is authorized.
 app.post('/admin/reconcile', async (c) => {
-  if (c.req.header('x-admin-token') !== c.env.ADMIN_TOKEN) {
-    return c.json({ error: 'forbidden' }, 403)
+  const auth = await verifyAgentToken(c)
+  if (auth instanceof Response) return auth
+
+  const allowed = (await c.env.REGISTRY_KV.get<string[]>(ADMIN_PROVIDERS_KEY, 'json')) ?? []
+  if (!allowed.includes(auth.ap)) {
+    emit(c, {
+      event: 'aauth.registry.admin_denied',
+      level: 40,
+      msg: `reconcile denied for ${auth.sub} (ap ${auth.ap})`,
+      agent: auth.sub,
+      ap: auth.ap,
+    })
+    return c.json({ error: 'forbidden', ap: auth.ap }, 403)
   }
+
   const result = await reconcile(c.env)
+  emit(c, {
+    event: 'aauth.registry.reconciled_manual',
+    msg: `manual reconcile by ${auth.sub}`,
+    agent: auth.sub,
+    ap: auth.ap,
+    ...result,
+  })
   return c.json({ status: 'reconciled', ...result })
 })
 

@@ -89,10 +89,12 @@ ONE_STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/resources/notes.aauth
 check "returns 401" "$([ "$ONE_STATUS" = "401" ] && echo true || echo false)"
 echo
 
-# ── admin reconcile without token → 403 ──
-echo "--- POST /admin/reconcile (no token) ---"
-ADMIN_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/admin/reconcile")
-check "returns 403" "$([ "$ADMIN_STATUS" = "403" ] && echo true || echo false)"
+# ── admin reconcile unsigned → 401 (now AAuth-gated, not a shared secret) ──
+echo "--- POST /admin/reconcile (unsigned) ---"
+ADMIN_RESP=$(curl -s -D - -o /dev/null -X POST "$BASE/admin/reconcile" 2>&1)
+check "returns 401" "$([ "$(status_of "$ADMIN_RESP")" = "401" ] && echo true || echo false)"
+check "has Accept-Signature header" \
+  "$(echo "$ADMIN_RESP" | grep -qi 'accept-signature' && echo true || echo false)"
 echo
 
 # ── CORS ──

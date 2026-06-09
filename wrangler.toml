@@ -32,4 +32,10 @@ binding = "EVENTS_QUEUE"
 
 # Secrets (set via `wrangler secret put`):
 #   SIGNING_KEY  — Ed25519 private JWK (npm run generate-key)
-#   ADMIN_TOKEN  — bearer for POST /admin/reconcile
+#
+# Admin auth is AAuth-native, not a shared secret: POST /admin/reconcile
+# requires an agent token issued by an agent provider (AP) in the KV
+# allowlist at key `admin:providers` (a JSON string[] of agent-token `iss`
+# URLs — any agent from a listed AP is authorized). Seed with:
+#   wrangler kv key put --namespace-id <REGISTRY_KV id> --remote \
+#     'admin:providers' '["https://dickhardt.github.io"]'

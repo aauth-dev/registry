@@ -34,8 +34,12 @@ To ship a change:
   R2 (`REGISTRY_R2`) holds the aggregate `resources.json` read view.
   `src/store.ts` owns both, plus `reconcile()`.
 - **Reconcile:** daily cron (`scheduled` handler) + `waitUntil` after each
-  POST + manual `POST /admin/reconcile` (gated by `ADMIN_TOKEN`). Rebuilds
-  R2 from KV, refreshes live metadata, prunes 404/410 hosts.
+  POST + manual `POST /admin/reconcile`. Rebuilds R2 from KV, refreshes live
+  metadata, prunes 404/410 hosts.
+- **Admin auth is AAuth-native** (no shared secret): `POST /admin/reconcile`
+  requires an agent token from an agent provider in the KV allowlist at key
+  `admin:providers` (JSON `string[]` of agent-token `iss` URLs — any agent
+  from a listed AP is authorized). See `wrangler.toml` for the seed command.
 - **POST validation + SSRF guards:** `src/validate.ts` (https-only, fixed
   well-known path, no redirects, timeout, size cap, `issuer === host`).
 - **Events:** `src/events.ts` emits to the `aauth-events` queue; shipper
@@ -53,7 +57,7 @@ To ship a change:
 | `GET /resources` | agent token | List (R2 index, ETag) |
 | `GET /resources/{host}` | agent token | Single entry (KV) |
 | `POST /resources` | agent token | Add by issuer → 201 / 200 / 422 |
-| `POST /admin/reconcile` | `x-admin-token` | Manual reconcile |
+| `POST /admin/reconcile` | agent token from `admin:providers` AP allowlist | Manual reconcile |
 
 ## Cloudflare setup (one-time, outside this repo)
 
@@ -61,4 +65,5 @@ To ship a change:
 - R2 bucket `registry-aauth-dev` (`REGISTRY_R2`).
 - `aauth-events` queue producer (shared with the other workers).
 - `registry.aauth.dev` custom domain route.
-- `wrangler secret put SIGNING_KEY` and `wrangler secret put ADMIN_TOKEN`.
+- `wrangler secret put SIGNING_KEY`.
+- Seed the admin allowlist: `wrangler kv key put --namespace-id <id> --remote 'admin:providers' '["https://dickhardt.github.io"]'`.

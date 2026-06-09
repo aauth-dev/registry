@@ -37,7 +37,7 @@ discovery convenience, never a gatekeeper.
 | `GET /resources` | agent token | List all registered resources (from R2 index) |
 | `GET /resources/{host}` | agent token | Single entry (direct KV read) |
 | `POST /resources` | agent token | Submit `{"issuer":"https://host"}`; fetch + validate + add |
-| `POST /admin/reconcile` | `x-admin-token` | Manually rebuild the R2 index |
+| `POST /admin/reconcile` | agent token (allowlisted) | Manually rebuild the R2 index |
 
 ### `POST /resources`
 
@@ -67,4 +67,6 @@ Cloudflare Workers Builds auto-deploys on push to `main` — see `CLAUDE.md`.
 
 Required Cloudflare resources: a KV namespace (`REGISTRY_KV`), an R2 bucket
 (`registry-aauth-dev`), the `aauth-events` queue, the `registry.aauth.dev`
-custom domain, and the `SIGNING_KEY` + `ADMIN_TOKEN` secrets.
+custom domain, and the `SIGNING_KEY` secret. Seed the admin allowlist KV key
+`admin:providers` (see `wrangler.toml`) with the agent-provider `iss` URLs
+whose agents may run `POST /admin/reconcile`.

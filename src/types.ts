@@ -1,7 +1,6 @@
 export interface Env {
   ORIGIN: string
   SIGNING_KEY: string // Ed25519 private key (JWK JSON), set as a secret
-  ADMIN_TOKEN: string // bearer for POST /admin/reconcile, set as a secret
   REGISTRY_KV: KVNamespace // source of truth: resource:{host} -> RegistryEntry
   REGISTRY_R2: R2Bucket // denormalized read view: resources.json
   EVENTS_QUEUE: Queue // bound to aauth-events; drained + signed by shipper.aauth.dev → Freezer
@@ -34,6 +33,10 @@ export interface RegistryIndex {
 export const RESOURCE_PREFIX = 'resource:'
 // R2 object key for the aggregate index
 export const INDEX_OBJECT = 'resources.json'
+// KV key holding the allowlist of agent providers (APs) whose agents may
+// run admin ops (e.g. POST /admin/reconcile). Value: JSON string[] of agent
+// token `iss` URLs — any agent issued by a listed AP is authorized.
+export const ADMIN_PROVIDERS_KEY = 'admin:providers'
 
 // Validation limits
 export const MAX_DESCRIPTION = 4096 // chars
