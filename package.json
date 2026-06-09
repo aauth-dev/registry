@@ -1,0 +1,22 @@
+{
+  "name": "registry.aauth.dev",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AAuth Registry — a directory of AAuth resources, gated by agent token",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "generate-key": "node scripts/generate-key.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:deploy": "bash scripts/test.sh"
+  },
+  "dependencies": {
+    "@hellocoop/httpsig": "^1.5.0",
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250410.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.0.0"
+  }
+}

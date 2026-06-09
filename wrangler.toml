@@ -1,0 +1,35 @@
+name = "registry-aauth-dev"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ORIGIN = "https://registry.aauth.dev"
+
+# Source of truth: one key per resource (resource:{host} -> RegistryEntry).
+[[kv_namespaces]]
+binding = "REGISTRY_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# Denormalized read view: a single resources.json object rebuilt by reconcile.
+[[r2_buckets]]
+binding = "REGISTRY_R2"
+bucket_name = "registry-aauth-dev"
+
+[[routes]]
+pattern = "registry.aauth.dev"
+custom_domain = true
+
+# Daily reconcile: rebuild resources.json from KV + refresh live metadata.
+[triggers]
+crons = ["0 0 * * *"]
+
+# Structured telemetry events. shipper.aauth.dev consumes this queue,
+# batches + signs (RFC 9421), and POSTs to Freezer /api/v1/ingest.
+[[queues.producers]]
+queue = "aauth-events"
+binding = "EVENTS_QUEUE"
+
+# Secrets (set via `wrangler secret put`):
+#   SIGNING_KEY  — Ed25519 private JWK (npm run generate-key)
+#   ADMIN_TOKEN  — bearer for POST /admin/reconcile
