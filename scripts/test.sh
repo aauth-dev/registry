@@ -114,23 +114,22 @@ cat <<EOF
 Signed end-to-end (manual, requires a published agent keypair — see
 https://www.aauth.dev/walkthrough.md to set one up with @aauth/bootstrap):
 
-  # list (empty at first)
+  # list — open to any agent (agent token)
   npx @aauth/fetch $BASE/resources
 
-  # add notes — expect {"status":"added",...}
+  # add — requires a VERIFIED PERSON. An agent token alone gets a 401
+  # consent challenge; @aauth/fetch follows it to your Person Server,
+  # where you approve (the interaction). After consent it retries with the
+  # auth_token and the resource is added, attributed to you.
   npx @aauth/fetch -X POST -H 'content-type: application/json' \\
     -d '{"issuer":"https://notes.aauth.dev"}' $BASE/resources
+  #   → already_present if seeded; otherwise added with submitted_by.user
 
-  # add again — expect {"status":"already_present",...}
-  npx @aauth/fetch -X POST -H 'content-type: application/json' \\
-    -d '{"issuer":"https://notes.aauth.dev"}' $BASE/resources
-
-  # bogus host — expect 422 {"status":"metadata_invalid",...}
+  # bogus host (after consent) — expect 422 {"status":"metadata_invalid",...}
   npx @aauth/fetch -X POST -H 'content-type: application/json' \\
     -d '{"issuer":"https://example.com"}' $BASE/resources
 
-  # list again — notes now present (after reconcile)
-  npx @aauth/fetch $BASE/resources
+Humans use the web UI: log in with Hellō (the same consent), then add.
 EOF
 [ "$FAIL" -eq 0 ] && echo "All unauthenticated tests passed!" || echo "Some tests failed."
 exit "$FAIL"

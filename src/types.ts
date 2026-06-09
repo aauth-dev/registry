@@ -10,6 +10,15 @@ export type AccessMode = 'agent-token' | 'aauth-access-token' | 'auth-token'
 
 export const ACCESS_MODES: AccessMode[] = ['agent-token', 'aauth-access-token', 'auth-token']
 
+// The verified person behind a submission — asserted by their Person
+// Server (Hellō) via the AAuth auth-token flow. Every new add carries one.
+export interface SubmitterIdentity {
+  sub: string // stable identifier asserted by the PS
+  ps: string // the Person Server that asserted it
+  email?: string // verified email (Hellō always releases one)
+  name?: string
+}
+
 export interface RegistryEntry {
   issuer: string // https://notes.aauth.dev — canonical id + dedup key
   name: string // from client_name
@@ -18,9 +27,9 @@ export interface RegistryEntry {
   logo_uri?: string
   added: string // ISO timestamp
   submitted_by: {
-    agent: string // agent token sub
-    ap: string // agent token iss (agent provider)
-    user?: string // Hellō sub, when added via the human UI (Phase B)
+    user?: SubmitterIdentity // verified person (present on all new adds; absent on legacy seeds)
+    agent?: string // the agent/web-agent sub that signed the request
+    ap?: string // agent provider
   }
 }
 

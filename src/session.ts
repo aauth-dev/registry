@@ -6,19 +6,14 @@
 
 import type { Context } from 'hono'
 import { getPublicJWK, importSigningKey, signJWT, verifyJWT } from './crypto'
-import type { Env } from './types'
+import type { Env, SubmitterIdentity } from './types'
 
 type HonoEnv = { Bindings: Env }
 
 const COOKIE = 'registry_session'
 const SESSION_TTL = 60 * 60 * 24 // 1 day
 
-export interface HumanIdentity {
-  sub: string // stable identifier asserted by the PS
-  ps: string // the Person Server that asserted it
-  email?: string
-  name?: string
-}
+export type HumanIdentity = SubmitterIdentity
 
 export async function mintSessionCookie(env: Env, id: HumanIdentity): Promise<string> {
   const privateKey = await importSigningKey(env.SIGNING_KEY)

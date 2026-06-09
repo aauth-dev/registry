@@ -113,7 +113,7 @@ export async function fetchResourceMetadata(origin: string, host: string): Promi
   return { ok: true, metadata: { ...meta, issuer } }
 }
 
-// Build a RegistryEntry from validated metadata and the submitter identity.
+// Build a RegistryEntry from validated metadata and the submitter.
 export function buildEntry(
   meta: ResourceMetadata,
   submitted_by: RegistryEntry['submitted_by'],

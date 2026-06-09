@@ -7,7 +7,7 @@ import { buildEntry, fetchResourceMetadata, normalizeHost } from './validate'
 import { llmsTxt, robotsTxt, sitemapXml } from './discoverability'
 import { emit, emitBackground } from './events'
 import { DEFAULT_PS, mintAgentToken, resolveAgentLocal, verifySigHwk } from './ap'
-import { handleIdentity } from './login'
+import { handleIdentity, resolveSubmitter } from './login'
 import { clearSessionCookie, readSession } from './session'
 import { ADMIN_PROVIDERS_KEY, type Env } from './types'
 
@@ -49,7 +49,12 @@ app.get('/.well-known/aauth-resource.json', (c) => {
     access_mode: 'agent-token',
     client_name: 'AAuth Registry',
     description:
-      'A directory of AAuth resources. Listing requires an agent token; submit a resource by issuer to have its metadata fetched, validated, and added.',
+      'A directory of AAuth resources. Listing is open to any agent; contributing a resource requires a verified person — log in with your Person Server (or present an auth token) so each entry is attributable.',
+    scope_descriptions: {
+      openid: 'Confirm who you are',
+      email: 'Your verified email address',
+      name: 'Your name',
+    },
   })
 })
 
@@ -183,11 +188,15 @@ app.get('/resources/:host', async (c) => {
   return c.json(entry)
 })
 
-// POST /resources — submit a resource by issuer.
+// POST /resources — submit a resource by issuer. Adding requires a
+// VERIFIED PERSON: either a logged-in human (web session) or an agent that
+// presents an auth_token. An agent_token alone gets a 401 consent challenge
+// (the interaction) — see resolveSubmitter.
 app.post('/resources', async (c) => {
   const rawBody = await c.req.text()
-  const auth = await verifyAgentToken(c, rawBody)
-  if (auth instanceof Response) return auth
+  const submitter = await resolveSubmitter(c, rawBody)
+  if (submitter instanceof Response) return submitter
+  const user = submitter.user
 
   let body: { issuer?: string }
   try {
@@ -205,8 +214,7 @@ app.post('/resources', async (c) => {
       event: 'aauth.registry.metadata_invalid',
       level: 40,
       msg: `disallowed host: ${body.issuer}`,
-      agent: auth.sub,
-      ap: auth.ap,
+      user: user.sub,
       errors: ['invalid_or_disallowed_host'],
     })
     return c.json({ status: 'metadata_invalid', errors: ['invalid_or_disallowed_host'] }, 422)
@@ -218,8 +226,7 @@ app.post('/resources', async (c) => {
     emit(c, {
       event: 'aauth.registry.resource_duplicate',
       msg: `duplicate ${norm.host}`,
-      agent: auth.sub,
-      ap: auth.ap,
+      user: user.sub,
       host: norm.host,
     })
     return c.json({ status: 'already_present', resource: existing }, 200)
@@ -231,30 +238,25 @@ app.post('/resources', async (c) => {
       event: 'aauth.registry.metadata_invalid',
       level: 40,
       msg: `invalid metadata for ${norm.host}`,
-      agent: auth.sub,
-      ap: auth.ap,
+      user: user.sub,
       host: norm.host,
       errors: result.errors,
     })
     return c.json({ status: 'metadata_invalid', errors: result.errors }, 422)
   }
 
-  // If the caller is a logged-in human (web UI), attribute the submission
-  // to their Hellō identity as well as the web-agent.
-  const session = await readSession(c)
   const entry = buildEntry(result.metadata, {
-    agent: auth.sub,
-    ap: auth.ap,
-    ...(session ? { user: session.sub } : {}),
+    user,
+    ...(submitter.agent ? { agent: submitter.agent } : {}),
   })
   await putEntry(c.env, entry)
 
   emit(c, {
     event: 'aauth.registry.resource_added',
-    msg: `added ${norm.host}`,
-    agent: auth.sub,
-    ap: auth.ap,
-    user: session?.sub,
+    msg: `added ${norm.host} by ${user.sub}`,
+    user: user.sub,
+    email: user.email,
+    agent: submitter.agent,
     host: norm.host,
     access_mode: entry.access_mode,
   })

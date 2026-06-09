@@ -1,10 +1,13 @@
-// "Login with Hellō" — the registry's identity resource. A browser
-// web-agent calls this endpoint signed with its agent token; the registry
-// returns a resource_token (401 + AAuth-Requirement). The browser takes
-// that to the Person Server (Hellō), the human approves there, and the PS
-// returns an auth_token. The browser retries here signed with the
-// auth_token; the registry verifies it, extracts the human's identity, and
-// sets a session cookie. Mirrors whoami.aauth.dev's flow.
+// "Login with Hellō" and submitter identity — both built on the AAuth
+// auth-token flow (no OIDC). A browser web-agent or an agent calls signed
+// with its agent token; the registry returns a resource_token (401 +
+// AAuth-Requirement). The caller takes it to the Person Server (Hellō),
+// the human approves there — the interaction — and the PS returns an
+// auth_token. Retried with the auth_token, the registry verifies it
+// against the PS JWKS and reads the verified person (sub/email/name).
+//
+//   handleIdentity   — GET /auth/identity: on auth_token, set a session.
+//   resolveSubmitter — POST /resources: require a verified person to add.
 
 import type { Context } from 'hono'
 import {
@@ -20,143 +23,87 @@ import {
   signJWT,
   verifyJWT,
 } from './crypto'
-import { mintSessionCookie } from './session'
+import { mintSessionCookie, readSession } from './session'
 import { emit, emitVerifyFailed } from './events'
-import type { Env } from './types'
+import type { Env, SubmitterIdentity } from './types'
 
 type HonoEnv = { Bindings: Env }
 
-// Identity scopes the registry asks the PS to release.
+// Identity scopes the registry asks the PS to release (verified email + name).
 const LOGIN_SCOPE = 'openid email name'
 
-export async function handleIdentity(c: Context<HonoEnv>): Promise<Response> {
-  const url = new URL(c.req.url)
-  const sigResult = await httpSigVerify({
-    method: c.req.method,
-    authority: url.host,
-    path: url.pathname,
-    query: url.search.replace(/^\?/, ''),
-    headers: c.req.raw.headers,
-  })
-
-  if (!sigResult.verified) {
-    const noSig = !c.req.header('signature') && !c.req.header('signature-input')
-    if (noSig) {
-      emitVerifyFailed(c, 'no_signature')
-      return c.json(
-        { error: 'signature_required' },
-        {
-          status: 401,
-          headers: {
-            'Accept-Signature': generateAcceptSignatureHeader({
-              label: 'sig',
-              components: ['@method', '@authority', '@path', 'signature-key'],
-              sigkey: 'jkt',
-            }),
-          },
-        },
-      ) as unknown as Response
-    }
-    const headers: Record<string, string> = {}
-    if (sigResult.signatureError) {
-      headers['Signature-Error'] = generateSignatureErrorHeader(sigResult.signatureError)
-    }
-    emitVerifyFailed(c, 'signature_invalid', { detail: sigResult.error })
-    return c.json(
-      { error: 'signature_verification_failed', detail: sigResult.error },
-      { status: 401, headers },
-    ) as unknown as Response
-  }
-
-  if (sigResult.keyType !== 'jwt' || !sigResult.jwt) {
-    emitVerifyFailed(c, 'wrong_key_scheme', { actual_key_type: sigResult.keyType })
-    return c.json({ error: 'Signature-Key must use sig=jwt scheme' }, 401) as unknown as Response
-  }
-
-  const header = sigResult.jwt.header as Record<string, unknown>
-  const payload = sigResult.jwt.payload as Record<string, unknown>
-  const raw = sigResult.jwt.raw
-
-  if (header.typ === 'aa-auth+jwt') {
-    return handleAuthToken(c, raw, payload)
-  }
-  if (header.typ === 'aa-agent+jwt') {
-    return handleAgentToken(c, raw, payload)
-  }
-
-  emitVerifyFailed(c, 'unsupported_jwt_type', { jwt_typ: header.typ })
-  return c.json({ error: `unsupported JWT type: ${header.typ}` }, 400)
+// 401 returned when no signature is present, telling the caller what to sign.
+function signatureRequired(c: Context<HonoEnv>): Response {
+  emitVerifyFailed(c, 'no_signature')
+  return c.json(
+    { error: 'signature_required' },
+    {
+      status: 401,
+      headers: {
+        'Accept-Signature': generateAcceptSignatureHeader({
+          label: 'sig',
+          components: ['@method', '@authority', '@path', 'signature-key'],
+          sigkey: 'jkt',
+        }),
+      },
+    },
+  ) as unknown as Response
 }
 
-// auth_token → verify against PS JWKS, extract identity, set session.
-async function handleAuthToken(
+// Verify an auth_token against its Person Server's JWKS and return the
+// verified person, or a Response on failure.
+async function verifyAuthTokenIdentity(
   c: Context<HonoEnv>,
   raw: string,
   payload: Record<string, unknown>,
-): Promise<Response> {
+): Promise<SubmitterIdentity | Response> {
   const iss = payload.iss as string | undefined
   const dwk = (payload.dwk as string) || 'aauth-person.json'
-  if (!iss) return c.json({ error: 'auth_token missing iss' }, 401)
+  if (!iss) return c.json({ error: 'auth_token missing iss' }, 401) as unknown as Response
 
   let jwks: { keys: JsonWebKey[] }
   try {
     const metaRes = await fetch(`${iss}/.well-known/${dwk}`)
-    if (!metaRes.ok) return c.json({ error: `PS metadata: ${metaRes.status}` }, 502)
+    if (!metaRes.ok) return c.json({ error: `PS metadata: ${metaRes.status}` }, 502) as unknown as Response
     const meta = (await metaRes.json()) as Record<string, unknown>
-    if (!meta.jwks_uri) return c.json({ error: 'PS metadata missing jwks_uri' }, 502)
+    if (!meta.jwks_uri) return c.json({ error: 'PS metadata missing jwks_uri' }, 502) as unknown as Response
     const jwksRes = await fetch(meta.jwks_uri as string)
-    if (!jwksRes.ok) return c.json({ error: `PS JWKS: ${jwksRes.status}` }, 502)
+    if (!jwksRes.ok) return c.json({ error: `PS JWKS: ${jwksRes.status}` }, 502) as unknown as Response
     jwks = (await jwksRes.json()) as { keys: JsonWebKey[] }
   } catch (err) {
-    return c.json({ error: `cannot reach PS: ${(err as Error).message}` }, 502)
+    return c.json({ error: `cannot reach PS: ${(err as Error).message}` }, 502) as unknown as Response
   }
 
   try {
     await verifyJWT(raw, jwks)
   } catch (err) {
     emitVerifyFailed(c, 'auth_token_jwt_verify_failed', { iss, detail: (err as Error).message })
-    return c.json({ error: `auth_token verification failed: ${(err as Error).message}` }, 401)
+    return c.json({ error: `auth_token verification failed: ${(err as Error).message}` }, 401) as unknown as Response
   }
 
   if (payload.aud !== c.env.ORIGIN) {
     emitVerifyFailed(c, 'auth_token_aud_mismatch', { aud: payload.aud, expected: c.env.ORIGIN })
-    return c.json({ error: 'auth_token aud mismatch' }, 401)
+    return c.json({ error: 'auth_token aud mismatch' }, 401) as unknown as Response
   }
-
   const now = Math.floor(Date.now() / 1000)
   if (!payload.exp || (payload.exp as number) < now) {
     emitVerifyFailed(c, 'auth_token_expired', { iss, exp: payload.exp })
-    return c.json({ error: 'auth_token expired' }, 401)
+    return c.json({ error: 'auth_token expired' }, 401) as unknown as Response
   }
-
   const sub = payload.sub as string | undefined
-  if (!sub) return c.json({ error: 'auth_token missing sub' }, 401)
+  if (!sub) return c.json({ error: 'auth_token missing sub' }, 401) as unknown as Response
 
-  const identity = {
+  return {
     sub,
     ps: iss,
     email: payload.email as string | undefined,
     name: payload.name as string | undefined,
   }
-  const cookie = await mintSessionCookie(c.env, identity)
-
-  emit(c, {
-    event: 'aauth.registry.login',
-    msg: `human logged in: ${sub}`,
-    user: sub,
-    ps: iss,
-    email: identity.email,
-  })
-
-  return c.json(
-    { status: 'logged_in', sub, email: identity.email, name: identity.name, ps: iss },
-    200,
-    { 'Set-Cookie': cookie },
-  )
 }
 
-// agent_token → mint a resource_token and challenge for an auth_token.
-async function handleAgentToken(
+// Verify an agent_token against its provider's JWKS, then mint a
+// resource_token and return a 401 auth-token challenge (the consent step).
+async function challengeForAuthToken(
   c: Context<HonoEnv>,
   raw: string,
   payload: Record<string, unknown>,
@@ -165,7 +112,6 @@ async function handleAgentToken(
   const agentDwk = (payload.dwk as string) || 'aauth-agent.json'
   if (!agentIss) return c.json({ error: 'agent_token missing iss' }, 401)
 
-  // Verify the agent token against its provider's JWKS.
   try {
     const metaRes = await fetch(`${agentIss}/.well-known/${agentDwk}`)
     if (!metaRes.ok) return c.json({ error: `AP metadata: ${metaRes.status}` }, 502)
@@ -185,9 +131,8 @@ async function handleAgentToken(
   }
 
   const psUrl = payload.ps as string | undefined
-  if (!psUrl) return c.json({ error: 'agent_token missing ps claim — cannot log in' }, 400)
+  if (!psUrl) return c.json({ error: 'agent_token missing ps claim — cannot establish identity' }, 400)
 
-  // PS issuer becomes the resource_token audience.
   let psIssuer: string
   try {
     const psRes = await fetch(`${psUrl}/.well-known/aauth-person.json`)
@@ -224,8 +169,8 @@ async function handleAgentToken(
   )
 
   emit(c, {
-    event: 'aauth.registry.login_challenge',
-    msg: 'resource_token minted for login',
+    event: 'aauth.registry.auth_token_challenge',
+    msg: 'resource_token minted; auth-token (consent) required',
     agent: payload.sub,
     ps: psUrl,
   })
@@ -239,4 +184,96 @@ async function handleAgentToken(
       },
     },
   ) as unknown as Response
+}
+
+// Run httpSigVerify and return the inner JWT (header/payload/raw), or a
+// Response on any signature failure.
+async function verifiedJwt(
+  c: Context<HonoEnv>,
+  rawBody?: string,
+): Promise<{ header: Record<string, unknown>; payload: Record<string, unknown>; raw: string } | Response> {
+  const url = new URL(c.req.url)
+  const sigResult = await httpSigVerify({
+    method: c.req.method,
+    authority: url.host,
+    path: url.pathname,
+    query: url.search.replace(/^\?/, ''),
+    headers: c.req.raw.headers,
+    ...(rawBody !== undefined ? { body: rawBody } : {}),
+  })
+
+  if (!sigResult.verified) {
+    const noSig = !c.req.header('signature') && !c.req.header('signature-input')
+    if (noSig) return signatureRequired(c)
+    const headers: Record<string, string> = {}
+    if (sigResult.signatureError) headers['Signature-Error'] = generateSignatureErrorHeader(sigResult.signatureError)
+    emitVerifyFailed(c, 'signature_invalid', { detail: sigResult.error })
+    return c.json({ error: 'signature_verification_failed', detail: sigResult.error }, { status: 401, headers }) as unknown as Response
+  }
+  if (sigResult.keyType !== 'jwt' || !sigResult.jwt) {
+    emitVerifyFailed(c, 'wrong_key_scheme', { actual_key_type: sigResult.keyType })
+    return c.json({ error: 'Signature-Key must use sig=jwt scheme' }, 401) as unknown as Response
+  }
+  return {
+    header: sigResult.jwt.header as Record<string, unknown>,
+    payload: sigResult.jwt.payload as Record<string, unknown>,
+    raw: sigResult.jwt.raw,
+  }
+}
+
+// GET /auth/identity — the human login endpoint. agent_token → challenge;
+// auth_token → verify, set session cookie, return claims.
+export async function handleIdentity(c: Context<HonoEnv>): Promise<Response> {
+  const v = await verifiedJwt(c)
+  if (v instanceof Response) return v
+
+  if (v.header.typ === 'aa-auth+jwt') {
+    const id = await verifyAuthTokenIdentity(c, v.raw, v.payload)
+    if (id instanceof Response) return id
+    const cookie = await mintSessionCookie(c.env, id)
+    emit(c, { event: 'aauth.registry.login', msg: `human logged in: ${id.sub}`, user: id.sub, ps: id.ps, email: id.email })
+    return c.json({ status: 'logged_in', ...id }, 200, { 'Set-Cookie': cookie })
+  }
+  if (v.header.typ === 'aa-agent+jwt') {
+    return challengeForAuthToken(c, v.raw, v.payload)
+  }
+  emitVerifyFailed(c, 'unsupported_jwt_type', { jwt_typ: v.header.typ })
+  return c.json({ error: `unsupported JWT type: ${v.header.typ}` }, 400)
+}
+
+export interface ResolvedSubmitter {
+  user: SubmitterIdentity
+  agent?: string
+}
+
+// Resolve the verified person behind a POST /resources call:
+//   - auth_token signature        → identity from the token
+//   - agent_token + valid session → identity from the web session
+//   - agent_token, no session     → 401 auth-token challenge (consent)
+// Returns the submitter, or a Response (challenge / error) to return as-is.
+export async function resolveSubmitter(
+  c: Context<HonoEnv>,
+  rawBody: string,
+): Promise<ResolvedSubmitter | Response> {
+  const v = await verifiedJwt(c, rawBody)
+  if (v instanceof Response) return v
+
+  if (v.header.typ === 'aa-auth+jwt') {
+    const id = await verifyAuthTokenIdentity(c, v.raw, v.payload)
+    if (id instanceof Response) return id
+    const act = v.payload.act as { sub?: string } | undefined
+    return { user: id, agent: act?.sub }
+  }
+
+  if (v.header.typ === 'aa-agent+jwt') {
+    // A logged-in human (web UI): the web-agent signs and the session
+    // cookie carries the verified person established at login.
+    const session = await readSession(c)
+    if (session) return { user: session, agent: v.payload.sub as string }
+    // Otherwise the agent must obtain an auth_token → trigger consent.
+    return challengeForAuthToken(c, v.raw, v.payload)
+  }
+
+  emitVerifyFailed(c, 'unsupported_jwt_type', { jwt_typ: v.header.typ })
+  return c.json({ error: `unsupported JWT type: ${v.header.typ}` }, 400) as unknown as Response
 }
