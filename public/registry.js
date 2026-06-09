@@ -1424,12 +1424,12 @@
     }
   }
   function showConsent(interaction) {
-    const sameDevice = `${interaction.url}?code=${encodeURIComponent(interaction.code)}&callback=${encodeURIComponent(ORIGIN + "/")}`;
+    const url = `${interaction.url}?code=${encodeURIComponent(interaction.code)}`;
     $("consent").innerHTML = `
     <div class="consent-box">
       <p>Approve at your Person Server to continue:</p>
-      <a class="btn" href="${esc(sameDevice)}" target="_blank" rel="noopener">\u014D&nbsp; Continue with Hell\u014D</a>
-      <p class="muted small">Waiting for approval\u2026</p>
+      <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">\u014D&nbsp; Continue with Hell\u014D</a>
+      <p class="muted small">Opens a new tab \u2014 approve there, then come back. Waiting for approval\u2026</p>
     </div>`;
     $("consent").classList.remove("hidden");
   }

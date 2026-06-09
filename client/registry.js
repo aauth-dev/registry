@@ -264,12 +264,15 @@ function setStatus(session) {
 }
 
 function showConsent(interaction) {
-  const sameDevice = `${interaction.url}?code=${encodeURIComponent(interaction.code)}&callback=${encodeURIComponent(ORIGIN + '/')}`
+  // No callback param: we poll in this tab, so we don't want the PS to
+  // redirect the approval tab back to a fresh registry page. Approve in the
+  // new tab, then return here — polling completes the sign-in.
+  const url = `${interaction.url}?code=${encodeURIComponent(interaction.code)}`
   $('consent').innerHTML = `
     <div class="consent-box">
       <p>Approve at your Person Server to continue:</p>
-      <a class="btn" href="${esc(sameDevice)}" target="_blank" rel="noopener">ō&nbsp; Continue with Hellō</a>
-      <p class="muted small">Waiting for approval…</p>
+      <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">ō&nbsp; Continue with Hellō</a>
+      <p class="muted small">Opens a new tab — approve there, then come back. Waiting for approval…</p>
     </div>`
   $('consent').classList.remove('hidden')
 }
