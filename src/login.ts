@@ -24,6 +24,7 @@ import {
   verifyJWT,
 } from './crypto'
 import { mintSessionCookie, readSession } from './session'
+import { issuerJwks } from './agent-token'
 import { emit, emitVerifyFailed } from './events'
 import type { Env, SubmitterIdentity } from './types'
 
@@ -113,12 +114,7 @@ async function challengeForAuthToken(
   if (!agentIss) return c.json({ error: 'agent_token missing iss' }, 401)
 
   try {
-    const metaRes = await fetch(`${agentIss}/.well-known/${agentDwk}`)
-    if (!metaRes.ok) return c.json({ error: `AP metadata: ${metaRes.status}` }, 502)
-    const meta = (await metaRes.json()) as Record<string, unknown>
-    const jwksRes = await fetch(meta.jwks_uri as string)
-    if (!jwksRes.ok) return c.json({ error: `AP JWKS: ${jwksRes.status}` }, 502)
-    const jwks = (await jwksRes.json()) as { keys: JsonWebKey[] }
+    const jwks = await issuerJwks(c.env, agentIss, agentDwk)
     await verifyJWT(raw, jwks)
   } catch (err) {
     emitVerifyFailed(c, 'agent_token_jwt_verify_failed', { iss: agentIss, detail: (err as Error).message })

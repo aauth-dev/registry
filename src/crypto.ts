@@ -21,7 +21,10 @@ function base64urlDecode(str: string): Uint8Array {
 }
 
 export async function importSigningKey(jwkJson: string): Promise<CryptoKey> {
-  const jwk = JSON.parse(jwkJson)
+  // Strip alg/key_ops/ext: a JWK exported by newer runtimes carries
+  // alg:"Ed25519", which WebCrypto rejects on import as an Ed25519 key
+  // (it expects alg absent or "EdDSA"). Usages come from the import call.
+  const { alg: _alg, key_ops: _ops, ext: _ext, ...jwk } = JSON.parse(jwkJson)
   return crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, false, ['sign'])
 }
 
@@ -40,7 +43,10 @@ export function sanitizeCnfJwk(jwk: JsonWebKey): JsonWebKey {
 
 export async function getPublicJWK(jwkJson: string): Promise<JsonWebKey & { kid: string }> {
   const jwk = JSON.parse(jwkJson)
-  const { d: _d, key_ops: _ops, ext: _ext, ...rest } = jwk
+  // Drop private/usage fields and the alg hint — an exported Ed25519 JWK may
+  // carry alg:"Ed25519", which WebCrypto rejects on import. The kid is a
+  // thumbprint over kty/crv/x only, so dropping alg doesn't change it.
+  const { d: _d, key_ops: _ops, ext: _ext, alg: _alg, ...rest } = jwk
   const publicJwk = { ...rest, key_ops: ['verify'] }
   const kid = await calculateThumbprint(publicJwk)
   return { ...publicJwk, kid }
@@ -101,9 +107,12 @@ export async function verifyJWT(
 
   for (const jwk of candidates) {
     try {
+      // Drop alg/key_ops/ext: an Ed25519 JWK with alg:"Ed25519" is rejected
+      // on import (the curve is set by importAlgo). Usages come from the call.
+      const { alg: _a, key_ops: _k, ext: _e, ...pub } = jwk
       const key = await crypto.subtle.importKey(
         'jwk',
-        { ...jwk, key_ops: ['verify'] },
+        { ...pub, key_ops: ['verify'] },
         algParams.importAlgo,
         false,
         ['verify']

@@ -20,6 +20,7 @@ const app = new Hono<HonoEnv>()
 // KV, and R2 calls bubble to Hono's default 500 with no context.
 app.onError((err, c) => {
   const error = err instanceof Error ? err : new Error(String(err))
+  console.error('unhandled_error', new URL(c.req.url).pathname, error.stack)
   emit(c, {
     event: 'aauth.registry.unhandled_error',
     level: 50,

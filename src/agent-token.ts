@@ -4,11 +4,28 @@ import {
   generateSignatureErrorHeader,
   generateAcceptSignatureHeader,
 } from '@hellocoop/httpsig'
-import { verifyJWT } from './crypto'
+import { getPublicJWK, verifyJWT } from './crypto'
 import { emitVerifyFailed } from './events'
 import type { Env } from './types'
 
 type HonoEnv = { Bindings: Env }
+
+// Resolve the JWKS for a token issuer. For tokens the registry issued
+// itself (iss === ORIGIN) — e.g. browser web-agent tokens — verify against
+// the local public key instead of fetching our own well-known: a Worker
+// fetching its own custom domain fails (522) on Cloudflare.
+export async function issuerJwks(env: Env, iss: string, dwk: string): Promise<{ keys: JsonWebKey[] }> {
+  if (iss === env.ORIGIN) {
+    return { keys: [await getPublicJWK(env.SIGNING_KEY)] }
+  }
+  const metaRes = await fetch(`${iss}/.well-known/${dwk}`)
+  if (!metaRes.ok) throw new Error(`issuer metadata ${metaRes.status}`)
+  const meta = (await metaRes.json()) as Record<string, unknown>
+  if (!meta.jwks_uri) throw new Error('issuer metadata missing jwks_uri')
+  const jwksRes = await fetch(meta.jwks_uri as string)
+  if (!jwksRes.ok) throw new Error(`issuer JWKS ${jwksRes.status}`)
+  return (await jwksRes.json()) as { keys: JsonWebKey[] }
+}
 
 export interface AgentIdentity {
   sub: string // agent token sub — the agent's stable identifier
@@ -87,20 +104,12 @@ export async function verifyAgentToken(
     return c.json({ error: 'Expected agent_token (aa-agent+jwt)' }, 401) as unknown as Response
   }
 
-  // Verify the agent token against its agent provider's JWKS.
+  // Verify the agent token against its agent provider's JWKS (local for
+  // tokens we issued ourselves).
   const iss = payload.iss as string
   const dwk = (payload.dwk as string) || 'aauth-agent.json'
   try {
-    const metaRes = await fetch(`${iss}/.well-known/${dwk}`)
-    if (!metaRes.ok) {
-      return c.json({ error: `Agent provider metadata: ${metaRes.status}` }, 502) as unknown as Response
-    }
-    const meta = (await metaRes.json()) as Record<string, unknown>
-    const jwksRes = await fetch(meta.jwks_uri as string)
-    if (!jwksRes.ok) {
-      return c.json({ error: `Agent provider JWKS: ${jwksRes.status}` }, 502) as unknown as Response
-    }
-    const jwks = (await jwksRes.json()) as { keys: JsonWebKey[] }
+    const jwks = await issuerJwks(c.env, iss, dwk)
     await verifyJWT(sigResult.jwt.raw, jwks)
   } catch (err) {
     emitVerifyFailed(c, 'agent_token_jwt_verify_failed', { iss, detail: (err as Error).message })
