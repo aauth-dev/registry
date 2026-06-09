@@ -1416,11 +1416,9 @@
         await logout();
         refresh();
       };
-      $("add-section").classList.remove("hidden");
     } else {
       bar.innerHTML = `<button id="login" class="btn">\u014D&nbsp; Log in with Hell\u014D</button>`;
       $("login").onclick = doLogin;
-      $("add-section").classList.add("hidden");
     }
   }
   function showConsent(interaction) {
@@ -1473,9 +1471,21 @@
     }
   }
   async function refresh() {
+    let session;
     try {
-      const [session, index] = await Promise.all([getSession(), listResources()]);
-      setStatus(session);
+      session = await getSession();
+    } catch {
+      session = { logged_in: false };
+    }
+    setStatus(session);
+    const loggedIn = !!(session && session.logged_in);
+    $("add-section").classList.toggle("hidden", !loggedIn);
+    if (!loggedIn) {
+      $("resources").innerHTML = '<p class="muted">Log in to browse the registry.</p>';
+      return;
+    }
+    try {
+      const index = await listResources();
       renderResources(index);
     } catch (err) {
       $("resources").innerHTML = `<p class="muted">Couldn't load: ${esc(err.message)}</p>`;

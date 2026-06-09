@@ -255,11 +255,9 @@ function setStatus(session) {
       await logout()
       refresh()
     }
-    $('add-section').classList.remove('hidden')
   } else {
     bar.innerHTML = `<button id="login" class="btn">ō&nbsp; Log in with Hellō</button>`
     $('login').onclick = doLogin
-    $('add-section').classList.add('hidden')
   }
 }
 
@@ -320,9 +318,25 @@ async function doAdd() {
 }
 
 async function refresh() {
+  // On load, only check the session (a plain cookie read — no agent, no
+  // bootstrap, no signed calls). Nothing AAuth happens until the person
+  // clicks "Log in with Hellō". Resources are shown only once signed in.
+  let session
   try {
-    const [session, index] = await Promise.all([getSession(), listResources()])
-    setStatus(session)
+    session = await getSession()
+  } catch {
+    session = { logged_in: false }
+  }
+  setStatus(session)
+  const loggedIn = !!(session && session.logged_in)
+  $('add-section').classList.toggle('hidden', !loggedIn)
+
+  if (!loggedIn) {
+    $('resources').innerHTML = '<p class="muted">Log in to browse the registry.</p>'
+    return
+  }
+  try {
+    const index = await listResources()
     renderResources(index)
   } catch (err) {
     $('resources').innerHTML = `<p class="muted">Couldn't load: ${esc(err.message)}</p>`
