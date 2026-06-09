@@ -280,15 +280,46 @@ function clearConsent() {
   $('consent').innerHTML = ''
 }
 
+// Run an action that may require PS consent, with a single user click.
+// A tab is opened synchronously (within the click gesture, so it isn't
+// blocked); once the async flow yields an interaction URL we point that
+// tab at Hellō. If consent is cached the tab is closed unused. Falls back
+// to a clickable button if the browser blocked the pre-opened tab.
+async function withConsentPopup(action) {
+  const popup = window.open('about:blank', '_blank')
+  if (popup) {
+    try {
+      popup.document.write('<p style="font:15px sans-serif;padding:24px">Connecting to Hellō…</p>')
+    } catch {}
+  }
+  let used = false
+  const onConsent = (interaction) => {
+    used = true
+    const url = `${interaction.url}?code=${encodeURIComponent(interaction.code)}`
+    if (popup && !popup.closed) {
+      popup.location.href = url
+      $('consent').innerHTML =
+        '<div class="consent-box"><p>Approve in the Hellō tab, then come back here.</p><p class="muted small">Waiting for approval…</p></div>'
+      $('consent').classList.remove('hidden')
+    } else {
+      showConsent(interaction) // popup blocked → clickable fallback
+    }
+  }
+  try {
+    return await action(onConsent)
+  } finally {
+    if (popup && !popup.closed && !used) popup.close()
+    clearConsent()
+  }
+}
+
 async function doLogin() {
   $('login').disabled = true
   $('login').textContent = 'Signing in…'
   try {
-    await login(showConsent)
-    clearConsent()
+    await withConsentPopup((onConsent) => login(onConsent))
     await refresh()
   } catch (err) {
-    clearConsent()
     alert(`Login failed: ${err.message}`)
     refresh()
   }
@@ -302,8 +333,7 @@ async function doAdd() {
   btn.disabled = true
   $('add-result').textContent = 'Adding…'
   try {
-    const { status, data } = await addResource(issuer, showConsent)
-    clearConsent()
+    const { status, data } = await withConsentPopup((onConsent) => addResource(issuer, onConsent))
     if (status === 201) $('add-result').textContent = `✓ Added ${data.resource?.name || issuer}`
     else if (status === 200) $('add-result').textContent = `Already in the registry.`
     else $('add-result').textContent = `Couldn't add: ${(data.errors || [data.error]).join(', ')}`

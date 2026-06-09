@@ -1435,15 +1435,40 @@
     $("consent").classList.add("hidden");
     $("consent").innerHTML = "";
   }
+  async function withConsentPopup(action) {
+    const popup = window.open("about:blank", "_blank");
+    if (popup) {
+      try {
+        popup.document.write('<p style="font:15px sans-serif;padding:24px">Connecting to Hell\u014D\u2026</p>');
+      } catch {
+      }
+    }
+    let used = false;
+    const onConsent = (interaction) => {
+      used = true;
+      const url = `${interaction.url}?code=${encodeURIComponent(interaction.code)}`;
+      if (popup && !popup.closed) {
+        popup.location.href = url;
+        $("consent").innerHTML = '<div class="consent-box"><p>Approve in the Hell\u014D tab, then come back here.</p><p class="muted small">Waiting for approval\u2026</p></div>';
+        $("consent").classList.remove("hidden");
+      } else {
+        showConsent(interaction);
+      }
+    };
+    try {
+      return await action(onConsent);
+    } finally {
+      if (popup && !popup.closed && !used) popup.close();
+      clearConsent();
+    }
+  }
   async function doLogin() {
     $("login").disabled = true;
     $("login").textContent = "Signing in\u2026";
     try {
-      await login(showConsent);
-      clearConsent();
+      await withConsentPopup((onConsent) => login(onConsent));
       await refresh();
     } catch (err) {
-      clearConsent();
       alert(`Login failed: ${err.message}`);
       refresh();
     }
@@ -1456,8 +1481,7 @@
     btn.disabled = true;
     $("add-result").textContent = "Adding\u2026";
     try {
-      const { status, data } = await addResource(issuer, showConsent);
-      clearConsent();
+      const { status, data } = await withConsentPopup((onConsent) => addResource(issuer, onConsent));
       if (status === 201) $("add-result").textContent = `\u2713 Added ${data.resource?.name || issuer}`;
       else if (status === 200) $("add-result").textContent = `Already in the registry.`;
       else $("add-result").textContent = `Couldn't add: ${(data.errors || [data.error]).join(", ")}`;
