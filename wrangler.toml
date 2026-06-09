@@ -9,7 +9,7 @@ ORIGIN = "https://registry.aauth.dev"
 # Source of truth: one key per resource (resource:{host} -> RegistryEntry).
 [[kv_namespaces]]
 binding = "REGISTRY_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "beee1a48381940b88eb8b1185d893897"
 
 # Denormalized read view: a single resources.json object rebuilt by reconcile.
 [[r2_buckets]]
