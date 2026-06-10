@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { getPublicJWK } from './crypto'
 import { verifyAgentToken } from './agent-token'
 import { getEntry, getIndex, putEntry, reconcile } from './store'
-import { buildEntry, fetchResourceMetadata, normalizeHost, resourceSelfDoc, validateResourceMetadata } from './validate'
+import { buildEntry, fetchResourceMetadata, normalizeHost } from './validate'
 import { llmsTxt, robotsTxt, sitemapXml } from './discoverability'
 import { emit, emitBackground } from './events'
 import { DEFAULT_PS, mintAgentToken, resolveAgentLocal, verifySigHwk } from './ap'
@@ -42,7 +42,22 @@ app.use('*', cors({
 // The registry is both a resource (the /resources API) and an agent
 // provider (it mints browser web-agent tokens for the human UI).
 
-app.get('/.well-known/aauth-resource.json', (c) => c.json(resourceSelfDoc(c.env.ORIGIN)))
+app.get('/.well-known/aauth-resource.json', (c) => {
+  const origin = c.env.ORIGIN
+  return c.json({
+    issuer: origin,
+    jwks_uri: `${origin}/.well-known/jwks.json`,
+    access_mode: 'agent-token',
+    client_name: 'AAuth Registry',
+    description:
+      'A directory of AAuth resources. Listing is open to any agent; contributing a resource requires a verified person — log in with your Person Server (or present an auth token) so each entry is attributable.',
+    scope_descriptions: {
+      openid: 'Confirm who you are',
+      email: 'Your verified email address',
+      name: 'Your name',
+    },
+  })
+})
 
 app.get('/.well-known/aauth-agent.json', (c) => {
   const origin = c.env.ORIGIN
@@ -218,12 +233,7 @@ app.post('/resources', async (c) => {
     return c.json({ status: 'already_present', resource: existing }, 200)
   }
 
-  // Self-registration: a Worker can't fetch its own custom domain (522),
-  // so validate the registry's own well-known locally.
-  const result =
-    norm.origin === c.env.ORIGIN
-      ? validateResourceMetadata(norm.origin, resourceSelfDoc(norm.origin))
-      : await fetchResourceMetadata(norm.origin, norm.host)
+  const result = await fetchResourceMetadata(norm.origin, norm.host)
   if (!result.ok) {
     emit(c, {
       event: 'aauth.registry.metadata_invalid',

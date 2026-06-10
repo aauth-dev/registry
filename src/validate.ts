@@ -53,53 +53,6 @@ function isIpLiteral(host: string): boolean {
   return false
 }
 
-// The registry's own resource self-metadata — the document served at
-// /.well-known/aauth-resource.json. Shared so the POST self-registration
-// and reconcile paths can produce/validate it locally: a Worker can't
-// fetch its own custom domain (Cloudflare returns 522).
-export function resourceSelfDoc(origin: string): ResourceMetadata & { jwks_uri: string; scope_descriptions: Record<string, string> } {
-  return {
-    issuer: origin,
-    jwks_uri: `${origin}/.well-known/jwks.json`,
-    access_mode: 'agent-token',
-    client_name: 'AAuth Registry',
-    description:
-      'A directory of AAuth resources. Listing is open to any agent; contributing a resource requires a verified person — log in with your Person Server (or present an auth token) so each entry is attributable.',
-    scope_descriptions: {
-      openid: 'Confirm who you are',
-      email: 'Your verified email address',
-      name: 'Your name',
-    },
-  }
-}
-
-// Validate a parsed well-known document against the registry's rules:
-// issuer === origin (anti-spoof), a present + bounded description, and a
-// valid access_mode (or absent). Shared by the fetch path and the local
-// self-registration path.
-export function validateResourceMetadata(origin: string, meta: ResourceMetadata): FetchResult {
-  const errors: string[] = []
-
-  const issuer = typeof meta.issuer === 'string' ? meta.issuer.replace(/\/+$/, '') : ''
-  if (issuer !== origin) {
-    errors.push(`issuer_mismatch: expected ${origin}, got ${meta.issuer ?? 'none'}`)
-  }
-
-  if (typeof meta.description !== 'string' || meta.description.trim() === '') {
-    errors.push('description_missing')
-  } else if (meta.description.length > MAX_DESCRIPTION) {
-    errors.push('description_too_long')
-  }
-
-  if (meta.access_mode !== undefined && !ACCESS_MODES.includes(meta.access_mode as AccessMode)) {
-    errors.push(`invalid_access_mode: ${meta.access_mode}`)
-  }
-
-  if (errors.length > 0) return { ok: false, errors }
-
-  return { ok: true, metadata: { ...meta, issuer } }
-}
-
 // Fetch and validate a resource's well-known metadata. Only ever
 // fetches the fixed well-known path on the submitted host, with no
 // redirects, a timeout, and a size cap (SSRF hardening). Enforces
@@ -138,7 +91,26 @@ export async function fetchResourceMetadata(origin: string, host: string): Promi
     return { ok: false, errors: ['metadata_not_json'] }
   }
 
-  return validateResourceMetadata(origin, meta)
+  const errors: string[] = []
+
+  const issuer = typeof meta.issuer === 'string' ? meta.issuer.replace(/\/+$/, '') : ''
+  if (issuer !== origin) {
+    errors.push(`issuer_mismatch: expected ${origin}, got ${meta.issuer ?? 'none'}`)
+  }
+
+  if (typeof meta.description !== 'string' || meta.description.trim() === '') {
+    errors.push('description_missing')
+  } else if (meta.description.length > MAX_DESCRIPTION) {
+    errors.push('description_too_long')
+  }
+
+  if (meta.access_mode !== undefined && !ACCESS_MODES.includes(meta.access_mode as AccessMode)) {
+    errors.push(`invalid_access_mode: ${meta.access_mode}`)
+  }
+
+  if (errors.length > 0) return { ok: false, errors }
+
+  return { ok: true, metadata: { ...meta, issuer } }
 }
 
 // Build a RegistryEntry from validated metadata and the submitter.
