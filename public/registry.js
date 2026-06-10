@@ -1301,8 +1301,19 @@
     setAgentToken(data.agent_token);
     return data.agent_token;
   }
+  function agentTokenFresh() {
+    const t = getAgentToken();
+    if (!t) return false;
+    try {
+      const p = JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+      return typeof p.exp === "number" && p.exp > Math.floor(Date.now() / 1e3) + 30;
+    } catch {
+      return false;
+    }
+  }
   async function ensureAgentToken() {
-    return getAgentToken() || await bootstrap();
+    if (!agentTokenFresh()) await bootstrap();
+    return getAgentToken();
   }
   var PENDING_KEY = "registry-pending";
   var savePending = (p) => localStorage.setItem(PENDING_KEY, JSON.stringify(p));
@@ -1323,10 +1334,17 @@
     return out;
   }
   async function startAuthFlow(pending) {
-    const agentToken = await ensureAgentToken();
-    const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: agentToken });
-    if (res.status !== 401) throw new Error(`unexpected ${res.status} from identity`);
-    const resourceToken = parseRequirement(res.headers.get("aauth-requirement"))["resource-token"];
+    let agentToken = await ensureAgentToken();
+    const challenge = async () => {
+      const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: agentToken });
+      return res.status === 401 ? parseRequirement(res.headers.get("aauth-requirement"))["resource-token"] : null;
+    };
+    let resourceToken = await challenge();
+    if (!resourceToken) {
+      await bootstrap();
+      agentToken = getAgentToken();
+      resourceToken = await challenge();
+    }
     if (!resourceToken) throw new Error("no resource_token in challenge");
     const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json();
     const psRes = await signedFetch(psMeta.token_endpoint, {

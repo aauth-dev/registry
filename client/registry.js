@@ -110,8 +110,21 @@ async function bootstrap() {
   return data.agent_token
 }
 
+function agentTokenFresh() {
+  const t = getAgentToken()
+  if (!t) return false
+  try {
+    const p = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return typeof p.exp === 'number' && p.exp > Math.floor(Date.now() / 1000) + 30
+  } catch {
+    return false
+  }
+}
+
+// Return a valid agent token, (re-)bootstrapping if missing or expired.
 async function ensureAgentToken() {
-  return getAgentToken() || (await bootstrap())
+  if (!agentTokenFresh()) await bootstrap()
+  return getAgentToken()
 }
 
 
@@ -148,11 +161,20 @@ function parseRequirement(h) {
 // the poll URL and redirects this page to Hellō — returns { redirecting:true }
 // and the caller should stop (the page is navigating away).
 async function startAuthFlow(pending) {
-  const agentToken = await ensureAgentToken()
+  let agentToken = await ensureAgentToken()
 
-  const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: agentToken })
-  if (res.status !== 401) throw new Error(`unexpected ${res.status} from identity`)
-  const resourceToken = parseRequirement(res.headers.get('aauth-requirement'))['resource-token']
+  // Get the resource_token challenge. If the agent token is stale/rejected
+  // (no challenge header on the 401), re-bootstrap once and retry.
+  const challenge = async () => {
+    const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: agentToken })
+    return res.status === 401 ? parseRequirement(res.headers.get('aauth-requirement'))['resource-token'] : null
+  }
+  let resourceToken = await challenge()
+  if (!resourceToken) {
+    await bootstrap()
+    agentToken = getAgentToken()
+    resourceToken = await challenge()
+  }
   if (!resourceToken) throw new Error('no resource_token in challenge')
 
   const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json()
