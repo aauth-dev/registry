@@ -1,6 +1,6 @@
 import type { AccessMode, Env, RegistryEntry, RegistryIndex } from './types'
 import { INDEX_OBJECT, RESOURCE_PREFIX } from './types'
-import { fetchResourceMetadata } from './validate'
+import { fetchResourceMetadata, resourceSelfDoc, validateResourceMetadata } from './validate'
 
 export function resourceKey(host: string): string {
   return `${RESOURCE_PREFIX}${host}`
@@ -33,7 +33,12 @@ export async function getIndex(env: Env): Promise<RegistryIndex> {
 // Returns the (possibly updated) entry, or 'gone' if the resource
 // returns a definitive 404/410 (transient errors keep the stale entry).
 async function revalidate(env: Env, host: string, entry: RegistryEntry): Promise<RegistryEntry | 'gone'> {
-  const result = await fetchResourceMetadata(entry.issuer, host)
+  // The registry's own entry: validate locally — a Worker can't fetch its
+  // own custom domain (522).
+  const result =
+    entry.issuer === env.ORIGIN
+      ? validateResourceMetadata(entry.issuer, resourceSelfDoc(entry.issuer))
+      : await fetchResourceMetadata(entry.issuer, host)
   if (!result.ok) {
     if (result.errors.some((e) => e === 'well_known_status_404' || e === 'well_known_status_410')) {
       return 'gone'
