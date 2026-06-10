@@ -1304,6 +1304,16 @@
   async function ensureAgentToken() {
     return getAgentToken() || await bootstrap();
   }
+  var PENDING_KEY = "registry-pending";
+  var savePending = (p) => localStorage.setItem(PENDING_KEY, JSON.stringify(p));
+  var clearPending = () => localStorage.removeItem(PENDING_KEY);
+  function loadPending() {
+    try {
+      return JSON.parse(localStorage.getItem(PENDING_KEY) || "null");
+    } catch {
+      return null;
+    }
+  }
   function parseRequirement(h) {
     const out = {};
     (h || "").split(";").forEach((part) => {
@@ -1312,12 +1322,11 @@
     });
     return out;
   }
-  async function getAuthToken(onConsent) {
+  async function startAuthFlow(pending) {
     const agentToken = await ensureAgentToken();
-    let res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: agentToken });
+    const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: agentToken });
     if (res.status !== 401) throw new Error(`unexpected ${res.status} from identity`);
-    const challenge = parseRequirement(res.headers.get("aauth-requirement"));
-    const resourceToken = challenge["resource-token"];
+    const resourceToken = parseRequirement(res.headers.get("aauth-requirement"))["resource-token"];
     if (!resourceToken) throw new Error("no resource_token in challenge");
     const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json();
     const psRes = await signedFetch(psMeta.token_endpoint, {
@@ -1328,21 +1337,20 @@
     if (psRes.status === 200) {
       const body2 = await psRes.json();
       if (!body2.auth_token) throw new Error("PS returned no auth_token");
-      return body2.auth_token;
+      return { authToken: body2.auth_token };
     }
     if (psRes.status !== 202) throw new Error(`PS token endpoint ${psRes.status}`);
     const body = await psRes.json().catch(() => ({}));
     const req = parseRequirement(psRes.headers.get("aauth-requirement"));
-    const interaction = {
-      url: req.url || body.url || psMeta.interaction_endpoint,
-      code: req.code || body.code
-    };
-    const pollUrl = psRes.headers.get("location") || body.location;
-    if (onConsent) onConsent(interaction);
-    return pollForAuthToken(new URL(pollUrl, PS_DEFAULT).toString(), agentToken);
+    const interactionUrl = req.url || body.url || psMeta.interaction_endpoint;
+    const code = req.code || body.code;
+    const pollUrl = new URL(psRes.headers.get("location") || body.location, PS_DEFAULT).toString();
+    savePending({ ...pending, pollUrl });
+    window.location.href = `${interactionUrl}?code=${encodeURIComponent(code)}&callback=${encodeURIComponent(ORIGIN + "/")}`;
+    return { redirecting: true };
   }
-  async function pollForAuthToken(pollUrl, agentToken) {
-    for (; ; ) {
+  async function pollForAuthToken(pollUrl, agentToken, maxCycles = 40) {
+    for (let i = 0; i < maxCycles; i++) {
       const res = await signedFetch(pollUrl, { jwt: agentToken, headers: { Prefer: "wait=30" } });
       if (res.status === 200) {
         const body = await res.json();
@@ -1352,12 +1360,36 @@
       }
       await new Promise((r) => setTimeout(r, 2e3));
     }
+    throw new Error("sign-in timed out");
   }
-  async function login(onConsent) {
-    const authToken = await getAuthToken(onConsent);
+  async function completeWithAuthToken(authToken, pending) {
+    if (pending.kind === "add") {
+      const res2 = await signedFetch(`${ORIGIN}/resources`, {
+        method: "POST",
+        jwt: authToken,
+        body: JSON.stringify({ issuer: pending.issuer })
+      });
+      return { status: res2.status, data: await res2.json().catch(() => ({})) };
+    }
     const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: authToken });
     if (!res.ok) throw new Error(`login retry ${res.status}`);
     return res.json();
+  }
+  async function resumePending() {
+    const pending = loadPending();
+    if (!pending) return false;
+    clearPending();
+    $("status").innerHTML = '<span class="who">Finishing sign-in\u2026</span>';
+    $("resources").innerHTML = "";
+    try {
+      const agentToken = getAgentToken();
+      if (!agentToken) throw new Error("agent token missing after redirect");
+      const authToken = await pollForAuthToken(pending.pollUrl, agentToken);
+      await completeWithAuthToken(authToken, pending);
+    } catch (err) {
+      console.error("resume failed", err);
+    }
+    return true;
   }
   async function listResources() {
     const agentToken = await ensureAgentToken();
@@ -1365,23 +1397,19 @@
     if (!res.ok) throw new Error(`list ${res.status}`);
     return res.json();
   }
-  async function addResource(issuer, onConsent) {
+  async function addResource(issuer) {
     const agentToken = await ensureAgentToken();
-    let res = await signedFetch(`${ORIGIN}/resources`, {
+    const res = await signedFetch(`${ORIGIN}/resources`, {
       method: "POST",
       jwt: agentToken,
       body: JSON.stringify({ issuer })
     });
     if (res.status === 401 && res.headers.get("aauth-requirement")) {
-      const authToken = await getAuthToken(onConsent);
-      res = await signedFetch(`${ORIGIN}/resources`, {
-        method: "POST",
-        jwt: authToken,
-        body: JSON.stringify({ issuer })
-      });
+      const r = await startAuthFlow({ kind: "add", issuer });
+      if (r.redirecting) return { redirecting: true };
+      return completeWithAuthToken(r.authToken, { kind: "add", issuer });
     }
-    const data = await res.json().catch(() => ({}));
-    return { status: res.status, data };
+    return { status: res.status, data: await res.json().catch(() => ({})) };
   }
   var getSession = () => fetch(`${ORIGIN}/auth/session`).then((r) => r.json());
   var logout = () => fetch(`${ORIGIN}/auth/logout`, { method: "POST" }).then(() => {
@@ -1421,52 +1449,13 @@
       $("login").onclick = doLogin;
     }
   }
-  function showConsent(interaction) {
-    const url = `${interaction.url}?code=${encodeURIComponent(interaction.code)}`;
-    $("consent").innerHTML = `
-    <div class="consent-box">
-      <p>Approve at your Person Server to continue:</p>
-      <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">\u014D&nbsp; Continue with Hell\u014D</a>
-      <p class="muted small">Opens a new tab \u2014 approve there, then come back. Waiting for approval\u2026</p>
-    </div>`;
-    $("consent").classList.remove("hidden");
-  }
-  function clearConsent() {
-    $("consent").classList.add("hidden");
-    $("consent").innerHTML = "";
-  }
-  async function withConsentPopup(action) {
-    const popup = window.open("about:blank", "_blank");
-    if (popup) {
-      try {
-        popup.document.write('<p style="font:15px sans-serif;padding:24px">Connecting to Hell\u014D\u2026</p>');
-      } catch {
-      }
-    }
-    let used = false;
-    const onConsent = (interaction) => {
-      used = true;
-      const url = `${interaction.url}?code=${encodeURIComponent(interaction.code)}`;
-      if (popup && !popup.closed) {
-        popup.location.href = url;
-        $("consent").innerHTML = '<div class="consent-box"><p>Approve in the Hell\u014D tab, then come back here.</p><p class="muted small">Waiting for approval\u2026</p></div>';
-        $("consent").classList.remove("hidden");
-      } else {
-        showConsent(interaction);
-      }
-    };
-    try {
-      return await action(onConsent);
-    } finally {
-      if (popup && !popup.closed && !used) popup.close();
-      clearConsent();
-    }
-  }
   async function doLogin() {
     $("login").disabled = true;
-    $("login").textContent = "Signing in\u2026";
+    $("login").textContent = "Connecting to Hell\u014D\u2026";
     try {
-      await withConsentPopup((onConsent) => login(onConsent));
+      const r = await startAuthFlow({ kind: "login" });
+      if (r.redirecting) return;
+      await completeWithAuthToken(r.authToken, { kind: "login" });
       await refresh();
     } catch (err) {
       alert(`Login failed: ${err.message}`);
@@ -1481,14 +1470,15 @@
     btn.disabled = true;
     $("add-result").textContent = "Adding\u2026";
     try {
-      const { status, data } = await withConsentPopup((onConsent) => addResource(issuer, onConsent));
+      const out = await addResource(issuer);
+      if (out.redirecting) return;
+      const { status, data } = out;
       if (status === 201) $("add-result").textContent = `\u2713 Added ${data.resource?.name || issuer}`;
       else if (status === 200) $("add-result").textContent = `Already in the registry.`;
       else $("add-result").textContent = `Couldn't add: ${(data.errors || [data.error]).join(", ")}`;
       input.value = "";
       await refresh();
     } catch (err) {
-      clearConsent();
       $("add-result").textContent = `Error: ${err.message}`;
     } finally {
       btn.disabled = false;
@@ -1515,11 +1505,12 @@
       $("resources").innerHTML = `<p class="muted">Couldn't load: ${esc(err.message)}</p>`;
     }
   }
-  window.addEventListener("DOMContentLoaded", () => {
+  window.addEventListener("DOMContentLoaded", async () => {
     $("add-btn").onclick = doAdd;
     $("issuer").addEventListener("keydown", (e) => {
       if (e.key === "Enter") doAdd();
     });
+    await resumePending();
     refresh();
   });
 })();

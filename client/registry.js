@@ -114,7 +114,25 @@ async function ensureAgentToken() {
   return getAgentToken() || (await bootstrap())
 }
 
-// ── Auth-token flow (login / consent) ──
+
+// ── Auth-token flow (login / consent) via same-page redirect ──
+//
+// When the PS defers for consent, we redirect THIS page to Hellō (setting
+// window.location) rather than opening a tab. Before leaving we persist the
+// pending state; the signing key (IndexedDB) and agent token (localStorage)
+// already survive the navigation. On return, resumePending() polls the PS
+// for the auth_token and finishes the action.
+
+const PENDING_KEY = 'registry-pending'
+const savePending = (p) => localStorage.setItem(PENDING_KEY, JSON.stringify(p))
+const clearPending = () => localStorage.removeItem(PENDING_KEY)
+function loadPending() {
+  try {
+    return JSON.parse(localStorage.getItem(PENDING_KEY) || 'null')
+  } catch {
+    return null
+  }
+}
 
 function parseRequirement(h) {
   const out = {}
@@ -125,19 +143,18 @@ function parseRequirement(h) {
   return out
 }
 
-// Run the full auth-token flow, invoking onConsent(interaction) if the PS
-// defers for human approval. Resolves to an auth_token (verified identity).
-async function getAuthToken(onConsent) {
+// Begin the auth-token flow. Returns { authToken } if consent was cached
+// (the PS answered 200). If consent is needed (202), saves `pending` plus
+// the poll URL and redirects this page to Hellō — returns { redirecting:true }
+// and the caller should stop (the page is navigating away).
+async function startAuthFlow(pending) {
   const agentToken = await ensureAgentToken()
 
-  // 1. Challenge from the registry → resource_token.
-  let res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: agentToken })
+  const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: agentToken })
   if (res.status !== 401) throw new Error(`unexpected ${res.status} from identity`)
-  const challenge = parseRequirement(res.headers.get('aauth-requirement'))
-  const resourceToken = challenge['resource-token']
+  const resourceToken = parseRequirement(res.headers.get('aauth-requirement'))['resource-token']
   if (!resourceToken) throw new Error('no resource_token in challenge')
 
-  // 2. Exchange at the PS token endpoint.
   const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json()
   const psRes = await signedFetch(psMeta.token_endpoint, {
     method: 'POST',
@@ -148,24 +165,24 @@ async function getAuthToken(onConsent) {
   if (psRes.status === 200) {
     const body = await psRes.json()
     if (!body.auth_token) throw new Error('PS returned no auth_token')
-    return body.auth_token
+    return { authToken: body.auth_token }
   }
   if (psRes.status !== 202) throw new Error(`PS token endpoint ${psRes.status}`)
 
-  // 3. Deferred → human approves at the PS (the interaction). Poll.
   const body = await psRes.json().catch(() => ({}))
   const req = parseRequirement(psRes.headers.get('aauth-requirement'))
-  const interaction = {
-    url: req.url || body.url || psMeta.interaction_endpoint,
-    code: req.code || body.code,
-  }
-  const pollUrl = psRes.headers.get('location') || body.location
-  if (onConsent) onConsent(interaction)
-  return pollForAuthToken(new URL(pollUrl, PS_DEFAULT).toString(), agentToken)
+  const interactionUrl = req.url || body.url || psMeta.interaction_endpoint
+  const code = req.code || body.code
+  const pollUrl = new URL(psRes.headers.get('location') || body.location, PS_DEFAULT).toString()
+
+  savePending({ ...pending, pollUrl })
+  // Redirect this page to Hellō; the PS sends us back to ORIGIN/ after approval.
+  window.location.href = `${interactionUrl}?code=${encodeURIComponent(code)}&callback=${encodeURIComponent(ORIGIN + '/')}`
+  return { redirecting: true }
 }
 
-async function pollForAuthToken(pollUrl, agentToken) {
-  for (;;) {
+async function pollForAuthToken(pollUrl, agentToken, maxCycles = 40) {
+  for (let i = 0; i < maxCycles; i++) {
     const res = await signedFetch(pollUrl, { jwt: agentToken, headers: { Prefer: 'wait=30' } })
     if (res.status === 200) {
       const body = await res.json()
@@ -175,15 +192,41 @@ async function pollForAuthToken(pollUrl, agentToken) {
     }
     await new Promise((r) => setTimeout(r, 2000))
   }
+  throw new Error('sign-in timed out')
 }
 
-// Establish a session: complete the auth-token flow, then hand the
-// auth_token to the registry so it sets the session cookie. Returns claims.
-async function login(onConsent) {
-  const authToken = await getAuthToken(onConsent)
+// Finish an action with a verified auth_token.
+async function completeWithAuthToken(authToken, pending) {
+  if (pending.kind === 'add') {
+    const res = await signedFetch(`${ORIGIN}/resources`, {
+      method: 'POST',
+      jwt: authToken,
+      body: JSON.stringify({ issuer: pending.issuer }),
+    })
+    return { status: res.status, data: await res.json().catch(() => ({})) }
+  }
+  // login: hand the auth_token to the registry so it sets the session cookie.
   const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: authToken })
   if (!res.ok) throw new Error(`login retry ${res.status}`)
   return res.json()
+}
+
+// On load, if we're returning from a Hellō redirect, finish the flow.
+async function resumePending() {
+  const pending = loadPending()
+  if (!pending) return false
+  clearPending()
+  $('status').innerHTML = '<span class="who">Finishing sign-in…</span>'
+  $('resources').innerHTML = ''
+  try {
+    const agentToken = getAgentToken()
+    if (!agentToken) throw new Error('agent token missing after redirect')
+    const authToken = await pollForAuthToken(pending.pollUrl, agentToken)
+    await completeWithAuthToken(authToken, pending)
+  } catch (err) {
+    console.error('resume failed', err)
+  }
+  return true
 }
 
 // ── Registry API ──
@@ -195,25 +238,22 @@ async function listResources() {
   return res.json()
 }
 
-// Add a resource. Uses the session if present; if the registry challenges
-// for identity, completes the auth-token flow and retries with it.
-async function addResource(issuer, onConsent) {
+// Add a resource. With a session it succeeds directly; if the registry
+// challenges for identity, startAuthFlow redirects to Hellō (and the add is
+// retried on return). Returns { status, data } or { redirecting:true }.
+async function addResource(issuer) {
   const agentToken = await ensureAgentToken()
-  let res = await signedFetch(`${ORIGIN}/resources`, {
+  const res = await signedFetch(`${ORIGIN}/resources`, {
     method: 'POST',
     jwt: agentToken,
     body: JSON.stringify({ issuer }),
   })
   if (res.status === 401 && res.headers.get('aauth-requirement')) {
-    const authToken = await getAuthToken(onConsent)
-    res = await signedFetch(`${ORIGIN}/resources`, {
-      method: 'POST',
-      jwt: authToken,
-      body: JSON.stringify({ issuer }),
-    })
+    const r = await startAuthFlow({ kind: 'add', issuer })
+    if (r.redirecting) return { redirecting: true }
+    return completeWithAuthToken(r.authToken, { kind: 'add', issuer })
   }
-  const data = await res.json().catch(() => ({}))
-  return { status: res.status, data }
+  return { status: res.status, data: await res.json().catch(() => ({})) }
 }
 
 const getSession = () => fetch(`${ORIGIN}/auth/session`).then((r) => r.json())
@@ -261,63 +301,13 @@ function setStatus(session) {
   }
 }
 
-function showConsent(interaction) {
-  // No callback param: we poll in this tab, so we don't want the PS to
-  // redirect the approval tab back to a fresh registry page. Approve in the
-  // new tab, then return here — polling completes the sign-in.
-  const url = `${interaction.url}?code=${encodeURIComponent(interaction.code)}`
-  $('consent').innerHTML = `
-    <div class="consent-box">
-      <p>Approve at your Person Server to continue:</p>
-      <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">ō&nbsp; Continue with Hellō</a>
-      <p class="muted small">Opens a new tab — approve there, then come back. Waiting for approval…</p>
-    </div>`
-  $('consent').classList.remove('hidden')
-}
-
-function clearConsent() {
-  $('consent').classList.add('hidden')
-  $('consent').innerHTML = ''
-}
-
-// Run an action that may require PS consent, with a single user click.
-// A tab is opened synchronously (within the click gesture, so it isn't
-// blocked); once the async flow yields an interaction URL we point that
-// tab at Hellō. If consent is cached the tab is closed unused. Falls back
-// to a clickable button if the browser blocked the pre-opened tab.
-async function withConsentPopup(action) {
-  const popup = window.open('about:blank', '_blank')
-  if (popup) {
-    try {
-      popup.document.write('<p style="font:15px sans-serif;padding:24px">Connecting to Hellō…</p>')
-    } catch {}
-  }
-  let used = false
-  const onConsent = (interaction) => {
-    used = true
-    const url = `${interaction.url}?code=${encodeURIComponent(interaction.code)}`
-    if (popup && !popup.closed) {
-      popup.location.href = url
-      $('consent').innerHTML =
-        '<div class="consent-box"><p>Approve in the Hellō tab, then come back here.</p><p class="muted small">Waiting for approval…</p></div>'
-      $('consent').classList.remove('hidden')
-    } else {
-      showConsent(interaction) // popup blocked → clickable fallback
-    }
-  }
-  try {
-    return await action(onConsent)
-  } finally {
-    if (popup && !popup.closed && !used) popup.close()
-    clearConsent()
-  }
-}
-
 async function doLogin() {
   $('login').disabled = true
-  $('login').textContent = 'Signing in…'
+  $('login').textContent = 'Connecting to Hellō…'
   try {
-    await withConsentPopup((onConsent) => login(onConsent))
+    const r = await startAuthFlow({ kind: 'login' })
+    if (r.redirecting) return // page is navigating to Hellō
+    await completeWithAuthToken(r.authToken, { kind: 'login' })
     await refresh()
   } catch (err) {
     alert(`Login failed: ${err.message}`)
@@ -333,14 +323,15 @@ async function doAdd() {
   btn.disabled = true
   $('add-result').textContent = 'Adding…'
   try {
-    const { status, data } = await withConsentPopup((onConsent) => addResource(issuer, onConsent))
+    const out = await addResource(issuer)
+    if (out.redirecting) return // navigating to Hellō; resumed on return
+    const { status, data } = out
     if (status === 201) $('add-result').textContent = `✓ Added ${data.resource?.name || issuer}`
     else if (status === 200) $('add-result').textContent = `Already in the registry.`
     else $('add-result').textContent = `Couldn't add: ${(data.errors || [data.error]).join(', ')}`
     input.value = ''
     await refresh()
   } catch (err) {
-    clearConsent()
     $('add-result').textContent = `Error: ${err.message}`
   } finally {
     btn.disabled = false
@@ -373,10 +364,11 @@ async function refresh() {
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   $('add-btn').onclick = doAdd
   $('issuer').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') doAdd()
   })
+  await resumePending() // finish a redirect-based sign-in, if returning
   refresh()
 })
