@@ -3,7 +3,7 @@ import { ACCESS_MODES, FETCH_TIMEOUT_MS, MAX_DESCRIPTION, MAX_METADATA_BYTES } f
 
 export interface ResourceMetadata {
   issuer: string
-  client_name?: string
+  name?: string
   description?: string
   access_mode?: string
   logo_uri?: string
@@ -120,7 +120,7 @@ export function buildEntry(
 ): RegistryEntry {
   return {
     issuer: meta.issuer,
-    name: meta.client_name?.trim() || meta.issuer,
+    name: meta.name?.trim() || meta.issuer,
     description: meta.description!.trim(),
     access_mode: (meta.access_mode as AccessMode) ?? 'agent-token',
     ...(meta.logo_uri ? { logo_uri: meta.logo_uri } : {}),

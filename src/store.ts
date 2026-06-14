@@ -44,7 +44,7 @@ async function revalidate(env: Env, host: string, entry: RegistryEntry): Promise
   const meta = result.metadata
   const updated: RegistryEntry = {
     ...entry,
-    name: meta.client_name?.trim() || entry.name,
+    name: meta.name?.trim() || entry.name,
     description: meta.description!.trim(),
     access_mode: (meta.access_mode as AccessMode) ?? 'agent-token',
     ...(meta.logo_uri ? { logo_uri: meta.logo_uri } : {}),

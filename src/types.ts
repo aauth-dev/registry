@@ -21,7 +21,7 @@ export interface SubmitterIdentity {
 
 export interface RegistryEntry {
   issuer: string // https://notes.aauth.dev — canonical id + dedup key
-  name: string // from client_name
+  name: string // from resource name field
   description: string
   access_mode: AccessMode
   logo_uri?: string

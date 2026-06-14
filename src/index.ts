@@ -48,7 +48,7 @@ app.get('/.well-known/aauth-resource.json', (c) => {
     issuer: origin,
     jwks_uri: `${origin}/.well-known/jwks.json`,
     access_mode: 'agent-token',
-    client_name: 'AAuth Registry',
+    name: 'AAuth Registry',
     description:
       'A directory of AAuth resources. Listing is open to any agent; contributing a resource requires a verified person — log in with your Person Server (or present an auth token) so each entry is attributable.',
     scope_descriptions: {
@@ -64,7 +64,7 @@ app.get('/.well-known/aauth-agent.json', (c) => {
   return c.json({
     issuer: origin,
     jwks_uri: `${origin}/.well-known/jwks.json`,
-    client_name: 'AAuth Registry',
+    name: 'AAuth Registry',
   })
 })
 
