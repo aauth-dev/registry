@@ -47,7 +47,7 @@ async function revalidate(env: Env, host: string, entry: RegistryEntry): Promise
     name: meta.name?.trim() || entry.name,
     description: meta.description!.trim(),
     access_mode: (meta.access_mode as AccessMode) ?? 'agent-token',
-    ...(meta.logo_uri ? { logo_uri: meta.logo_uri } : {}),
+    ...(meta.documentation_uri ? { documentation_uri: meta.documentation_uri } : {}),
   }
 
   if (JSON.stringify(updated) !== JSON.stringify(entry)) {

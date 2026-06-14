@@ -9,7 +9,7 @@ import { emit, emitBackground } from './events'
 import { DEFAULT_PS, mintAgentToken, resolveAgentLocal, verifySigHwk } from './ap'
 import { handleIdentity, resolveSubmitter } from './login'
 import { clearSessionCookie, readSession } from './session'
-import { ADMIN_PROVIDERS_KEY, type Env } from './types'
+import { ADMIN_PROVIDERS_KEY, BLOCKLIST_KEY, type Env } from './types'
 
 type HonoEnv = { Bindings: Env }
 
@@ -219,6 +219,12 @@ app.post('/resources', async (c) => {
       errors: ['invalid_or_disallowed_host'],
     })
     return c.json({ status: 'metadata_invalid', errors: ['invalid_or_disallowed_host'] }, 422)
+  }
+
+  // Blocklist check — reject internal infrastructure hosts.
+  const blocklist = await c.env.REGISTRY_KV.get<string[]>(BLOCKLIST_KEY, 'json') ?? []
+  if (blocklist.includes(norm.host)) {
+    return c.json({ status: 'metadata_invalid', errors: ['host_not_eligible'] }, 422)
   }
 
   // Dedup against the authoritative per-host key (immediately consistent).

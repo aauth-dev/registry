@@ -24,7 +24,7 @@ export interface RegistryEntry {
   name: string // from resource name field
   description: string
   access_mode: AccessMode
-  logo_uri?: string
+  documentation_uri?: string
   added: string // ISO timestamp
   submitted_by: {
     user?: SubmitterIdentity // verified person (present on all new adds; absent on legacy seeds)
@@ -40,6 +40,9 @@ export interface RegistryIndex {
 
 // KV key prefix for per-resource entries
 export const RESOURCE_PREFIX = 'resource:'
+// KV key holding a JSON string[] of hosts that may not be registered
+// (internal infrastructure). Set via: wrangler kv key put --remote 'registry:blocklist' '["web-agent.aauth.dev"]'
+export const BLOCKLIST_KEY = 'registry:blocklist'
 // R2 object key for the aggregate index
 export const INDEX_OBJECT = 'resources.json'
 // KV key holding the allowlist of agent providers (APs) whose agents may

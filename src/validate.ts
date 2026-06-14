@@ -6,7 +6,7 @@ export interface ResourceMetadata {
   name?: string
   description?: string
   access_mode?: string
-  logo_uri?: string
+  documentation_uri?: string
 }
 
 export type FetchResult =
@@ -123,7 +123,7 @@ export function buildEntry(
     name: meta.name?.trim() || meta.issuer,
     description: meta.description!.trim(),
     access_mode: (meta.access_mode as AccessMode) ?? 'agent-token',
-    ...(meta.logo_uri ? { logo_uri: meta.logo_uri } : {}),
+    ...(meta.documentation_uri ? { documentation_uri: meta.documentation_uri } : {}),
     added: new Date().toISOString(),
     submitted_by,
   }
