@@ -2,24 +2,23 @@
 
 ## Deployment
 
-**Deploy is via GitHub Actions** (`.github/workflows/deploy.yml`):
-push to `main` runs `cloudflare/wrangler-action` (`npm ci` → `wrangler
-deploy`). Requires a `CLOUDFLARE_API_TOKEN` repo secret (Workers Scripts
-edit token) — set it under repo Settings → Secrets → Actions, else the
-workflow fails.
+**Do not run `wrangler deploy` manually.** Cloudflare Workers Builds is
+connected to this repo and auto-deploys on every push to `main`. The CI
+deploy workflow was removed in `0b36307` in favour of the Git
+integration — there is no `.github/workflows/deploy.yml` and no
+`CLOUDFLARE_API_TOKEN` secret any more.
 
 To ship a change:
 
 1. Commit locally.
 2. `git push origin main`.
-3. Watch the deploy: `gh run watch` (or `gh run list`).
-4. Verify (usually live within a minute):
+3. Verify (usually live within a minute):
    ```bash
    curl -s https://registry.aauth.dev/.well-known/aauth-resource.json | jq .
    ```
 
-Until `CLOUDFLARE_API_TOKEN` is set, the Action fails; a one-off
-`npx wrangler deploy` from a local machine with CF auth is the fallback.
+Check deployment history in the Cloudflare dashboard (Workers & Pages →
+registry-aauth-dev → Deployments).
 
 ## Local development
 
