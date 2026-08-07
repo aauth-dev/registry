@@ -68,7 +68,11 @@ const setAgentToken = (t) => localStorage.setItem(AGENT_TOKEN_KEY, t)
 // ── Signed fetch helpers ──
 
 async function publicJwk(kp) {
-  return crypto.subtle.exportKey('jwk', kp.publicKey)
+  const jwk = await crypto.subtle.exportKey('jwk', kp.publicKey)
+  // httpsig 2.x (signature-key -08) requires a fully-specified alg on every
+  // JWK (RFC 9864); WebCrypto's exportKey does not set it.
+  jwk.alg = 'Ed25519'
+  return jwk
 }
 
 // sig=jwt call (agent_token or auth_token), with optional body + headers.

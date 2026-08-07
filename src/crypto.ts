@@ -31,23 +31,44 @@ export async function importSigningKey(jwkJson: string): Promise<CryptoKey> {
 import { calculateThumbprint } from '@hellocoop/httpsig'
 export { calculateThumbprint as computeJwkThumbprint }
 
+// Fully-specified JOSE algorithm identifier (RFC 9864) for a JWK.
+// httpsig 2.x (signature-key -08) takes the algorithm from the key's `alg`
+// member — never derived from kty/crv — and rejects keys without one, as
+// well as the polymorphic "EdDSA". Every JWK we publish or put in a cnf
+// claim must carry it.
+function fullySpecifiedAlg(jwk: JsonWebKey): string | undefined {
+  if (jwk.alg && jwk.alg !== 'EdDSA') return jwk.alg
+  if (jwk.kty === 'OKP') return jwk.crv // 'Ed25519' | 'Ed448'
+  if (jwk.kty === 'EC')
+    return ({ 'P-256': 'ES256', 'P-384': 'ES384', 'P-521': 'ES512' } as Record<string, string>)[
+      jwk.crv as string
+    ]
+  return undefined // RSA without alg: padding/hash cannot be derived
+}
+
 // Strip a public JWK down to the fields that belong in a cnf claim —
-// drops any private material (d), key_ops, ext, alg.
+// drops any private material (d), key_ops, ext — and stamp the
+// fully-specified alg the verifier requires.
 export function sanitizeCnfJwk(jwk: JsonWebKey): JsonWebKey {
-  if (jwk.kty === 'OKP') return { kty: 'OKP', crv: jwk.crv, x: jwk.x }
-  if (jwk.kty === 'EC') return { kty: 'EC', crv: jwk.crv, x: jwk.x, y: jwk.y }
-  if (jwk.kty === 'RSA') return { kty: 'RSA', n: jwk.n, e: jwk.e }
-  const { d: _d, key_ops: _ops, ext: _ext, alg: _alg, ...rest } = jwk as unknown as Record<string, unknown>
+  const alg = fullySpecifiedAlg(jwk)
+  const stamp = alg ? { alg } : {}
+  if (jwk.kty === 'OKP') return { kty: 'OKP', crv: jwk.crv, x: jwk.x, ...stamp }
+  if (jwk.kty === 'EC') return { kty: 'EC', crv: jwk.crv, x: jwk.x, y: jwk.y, ...stamp }
+  if (jwk.kty === 'RSA') return { kty: 'RSA', n: jwk.n, e: jwk.e, ...stamp }
+  const { d: _d, key_ops: _ops, ext: _ext, ...rest } = jwk as unknown as Record<string, unknown>
   return rest as unknown as JsonWebKey
 }
 
 export async function getPublicJWK(jwkJson: string): Promise<JsonWebKey & { kid: string }> {
   const jwk = JSON.parse(jwkJson)
-  // Drop private/usage fields and the alg hint — an exported Ed25519 JWK may
-  // carry alg:"Ed25519", which WebCrypto rejects on import. The kid is a
-  // thumbprint over kty/crv/x only, so dropping alg doesn't change it.
+  // Drop private/usage fields and any stored alg hint, then stamp a
+  // fully-specified alg (RFC 9864): the served JWKS must carry it under
+  // httpsig 2.x. The kid is a thumbprint over kty/crv/x only, so alg does
+  // not change it. verifyJWT/importSigningKey strip alg again before
+  // WebCrypto import, which rejects alg:"Ed25519".
   const { d: _d, key_ops: _ops, ext: _ext, alg: _alg, ...rest } = jwk
-  const publicJwk = { ...rest, key_ops: ['verify'] }
+  const alg = fullySpecifiedAlg(rest)
+  const publicJwk = { ...rest, ...(alg ? { alg } : {}), key_ops: ['verify'] }
   const kid = await calculateThumbprint(publicJwk)
   return { ...publicJwk, kid }
 }
