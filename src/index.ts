@@ -35,7 +35,13 @@ app.onError((err, c) => {
 // Expose AAuth response headers so browser JS (the human UI's web-agent)
 // can read the resource_token from the 401 challenge.
 app.use('*', cors({
-  exposeHeaders: ['AAuth-Requirement', 'Accept-Signature', 'Signature-Error'],
+  exposeHeaders: [
+    'AAuth-Requirement',
+    'Accept-Signature',
+    'Accept-Signature-Scheme',
+    'Accept-Signature-Alg',
+    'Signature-Error',
+  ],
 }))
 
 // ── Well-known ──

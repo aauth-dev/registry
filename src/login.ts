@@ -13,6 +13,7 @@ import type { Context } from 'hono'
 import {
   verify as httpSigVerify,
   generateAcceptSignatureHeader,
+  generateAcceptSignatureSchemeHeader,
   generateSignatureErrorHeader,
 } from '@hellocoop/httpsig'
 import {
@@ -44,8 +45,8 @@ function signatureRequired(c: Context<HonoEnv>): Response {
         'Accept-Signature': generateAcceptSignatureHeader({
           label: 'sig',
           components: ['@method', '@authority', '@path', 'signature-key'],
-          sigkey: 'jkt',
         }),
+        'Accept-Signature-Scheme': generateAcceptSignatureSchemeHeader(['jwt']),
       },
     },
   ) as unknown as Response
@@ -67,6 +68,9 @@ async function verifyAuthTokenIdentity(
     const metaRes = await fetch(`${iss}/.well-known/${dwk}`)
     if (!metaRes.ok) return c.json({ error: `PS metadata: ${metaRes.status}` }, 502) as unknown as Response
     const meta = (await metaRes.json()) as Record<string, unknown>
+    // signature-key -08: metadata must name the identity it is served under
+    // (byte-equal) before its jwks_uri is trusted.
+    if (meta.issuer !== iss) return c.json({ error: 'PS metadata issuer mismatch' }, 502) as unknown as Response
     if (!meta.jwks_uri) return c.json({ error: 'PS metadata missing jwks_uri' }, 502) as unknown as Response
     const jwksRes = await fetch(meta.jwks_uri as string)
     if (!jwksRes.ok) return c.json({ error: `PS JWKS: ${jwksRes.status}` }, 502) as unknown as Response
@@ -135,6 +139,9 @@ async function challengeForAuthToken(
     if (!psRes.ok) return c.json({ error: `PS metadata: ${psRes.status}` }, 502)
     const psMeta = (await psRes.json()) as Record<string, unknown>
     if (!psMeta.issuer) return c.json({ error: 'PS metadata missing issuer' }, 502)
+    // Byte-equal issuer check (signature-key -08 / RFC 8414 §3.3): don't
+    // mint a resource_token aud'd to an issuer the ps host didn't prove.
+    if (psMeta.issuer !== psUrl) return c.json({ error: 'PS metadata issuer mismatch' }, 502)
     psIssuer = psMeta.issuer as string
   } catch (err) {
     return c.json({ error: `cannot reach PS: ${(err as Error).message}` }, 502)

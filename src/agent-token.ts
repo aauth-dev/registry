@@ -3,6 +3,7 @@ import {
   verify as httpSigVerify,
   generateSignatureErrorHeader,
   generateAcceptSignatureHeader,
+  generateAcceptSignatureSchemeHeader,
 } from '@hellocoop/httpsig'
 import { getPublicJWK, verifyJWT } from './crypto'
 import { emitVerifyFailed } from './events'
@@ -21,6 +22,10 @@ export async function issuerJwks(env: Env, iss: string, dwk: string): Promise<{ 
   const metaRes = await fetch(`${iss}/.well-known/${dwk}`)
   if (!metaRes.ok) throw new Error(`issuer metadata ${metaRes.status}`)
   const meta = (await metaRes.json()) as Record<string, unknown>
+  // signature-key -08: the metadata document must name the identity it is
+  // served under, byte-equal, before its jwks_uri is trusted.
+  if (!meta.issuer) throw new Error('issuer metadata missing issuer')
+  if (meta.issuer !== iss) throw new Error(`issuer metadata issuer mismatch: ${meta.issuer}`)
   if (!meta.jwks_uri) throw new Error('issuer metadata missing jwks_uri')
   const jwksRes = await fetch(meta.jwks_uri as string)
   if (!jwksRes.ok) throw new Error(`issuer JWKS ${jwksRes.status}`)
@@ -71,8 +76,8 @@ export async function verifyAgentToken(
             'Accept-Signature': generateAcceptSignatureHeader({
               label: 'sig',
               components,
-              sigkey: 'jkt',
             }),
+            'Accept-Signature-Scheme': generateAcceptSignatureSchemeHeader(['jwt']),
           },
         },
       ) as unknown as Response
