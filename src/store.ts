@@ -1,5 +1,5 @@
 import type { AccessMode, Env, RegistryEntry, RegistryIndex } from './types'
-import { INDEX_OBJECT, RESOURCE_PREFIX } from './types'
+import { DEFAULT_ACCESS_MODE, INDEX_OBJECT, RESOURCE_PREFIX } from './types'
 import { fetchResourceMetadata } from './validate'
 
 export function resourceKey(host: string): string {
@@ -46,7 +46,7 @@ async function revalidate(env: Env, host: string, entry: RegistryEntry): Promise
     ...entry,
     name: meta.name?.trim() || entry.name,
     description: meta.description!.trim(),
-    access_mode: (meta.access_mode as AccessMode) ?? 'agent-token',
+    access_mode: (meta.access_mode as AccessMode) ?? DEFAULT_ACCESS_MODE,
     ...(meta.documentation_uri ? { documentation_uri: meta.documentation_uri } : {}),
   }
 

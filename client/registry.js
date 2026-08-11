@@ -2,10 +2,17 @@
 //
 // The page is an AAuth web-agent. It bootstraps an agent token (signed
 // sig=hwk with a key held in IndexedDB), lists resources (sig=jwt with the
-// agent token), and — to add a resource — runs the auth-token flow against
-// the person's Person Server (Hellō): the registry challenges, the human
-// approves at the PS (the interaction), and the resulting auth_token proves
-// a verified identity. Bundled to public/registry.js by `npm run build:client`.
+// agent token), and — to add a resource or log in — climbs the AAuth ladder
+// against the person's Person Server (Hellō):
+//
+//   agent token   → registry answers 401 requirement=person-token
+//   person token  → from the PS's person_token_endpoint; registry verifies it
+//                   and answers 401 requirement=auth-token + resource token
+//   auth token    → from the PS's auth_token_endpoint, given that resource
+//                   token; proves a verified identity to the registry
+//
+// The person approves at the PS (the interaction), which either step may
+// defer to with a 202. Bundled to public/registry.js by `npm run build:client`.
 
 import { fetch as sigFetch } from '@hellocoop/httpsig'
 
@@ -160,59 +167,92 @@ function parseRequirement(h) {
   return out
 }
 
-// Begin the auth-token flow. Returns { authToken } if consent was cached
-// (the PS answered 200). If consent is needed (202), saves `pending` plus
-// the poll URL and redirects this page to Hellō — returns { redirecting:true }
-// and the caller should stop (the page is navigating away).
-async function startAuthFlow(pending) {
-  let agentToken = await ensureAgentToken()
-
-  // Get the resource_token challenge. If the agent token is stale/rejected
-  // (no challenge header on the 401), re-bootstrap once and retry.
-  const challenge = async () => {
-    const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: agentToken })
-    return res.status === 401 ? parseRequirement(res.headers.get('aauth-requirement'))['resource-token'] : null
-  }
-  let resourceToken = await challenge()
-  if (!resourceToken) {
-    await bootstrap()
-    agentToken = getAgentToken()
-    resourceToken = await challenge()
-  }
-  if (!resourceToken) throw new Error('no resource_token in challenge')
-
-  const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json()
-  const psRes = await signedFetch(psMeta.token_endpoint, {
-    method: 'POST',
-    jwt: agentToken,
-    body: JSON.stringify({ resource_token: resourceToken, capabilities: ['interaction'], prompt: 'consent' }),
-  })
-
-  if (psRes.status === 200) {
-    const body = await psRes.json()
-    if (!body.auth_token) throw new Error('PS returned no auth_token')
-    return { authToken: body.auth_token }
-  }
-  if (psRes.status !== 202) throw new Error(`PS token endpoint ${psRes.status}`)
-
+// A 202 from the PS means the person has to approve at Hellō first. Save the
+// pending action plus the poll URL and redirect this page there; on return
+// resumePending() polls for the token and picks the flow back up. `stage`
+// records which token we were waiting for, since either step can defer.
+async function deferToPersonServer(psRes, psMeta, pending, stage) {
   const body = await psRes.json().catch(() => ({}))
   const req = parseRequirement(psRes.headers.get('aauth-requirement'))
   const interactionUrl = req.url || body.url || psMeta.interaction_endpoint
   const code = req.code || body.code
   const pollUrl = new URL(psRes.headers.get('location') || body.location, PS_DEFAULT).toString()
 
-  savePending({ ...pending, pollUrl })
-  // Redirect this page to Hellō; the PS sends us back to ORIGIN/ after approval.
+  savePending({ ...pending, stage, pollUrl })
   window.location.href = `${interactionUrl}?code=${encodeURIComponent(code)}&callback=${encodeURIComponent(ORIGIN + '/')}`
   return { redirecting: true }
 }
 
-async function pollForAuthToken(pollUrl, agentToken, maxCycles = 40) {
+// Step 1 of the climb: a person token for this resource, from the PS's
+// person_token_endpoint. It names the person to the registry and is what the
+// registry must verify before it will issue a resource token at all.
+async function obtainPersonToken(agentToken, psMeta, pending) {
+  if (!psMeta.person_token_endpoint) throw new Error('PS publishes no person_token_endpoint')
+  const res = await signedFetch(psMeta.person_token_endpoint, {
+    method: 'POST',
+    jwt: agentToken,
+    body: JSON.stringify({ resource: ORIGIN }),
+  })
+  if (res.status === 200) {
+    const body = await res.json()
+    if (!body.person_token) throw new Error('PS returned no person_token')
+    return { personToken: body.person_token }
+  }
+  if (res.status === 202) return deferToPersonServer(res, psMeta, pending, 'person')
+  throw new Error(`PS person token endpoint ${res.status}`)
+}
+
+// Step 2: present the person token to the registry and read the resource
+// token out of its 401 auth-token challenge.
+async function resourceTokenFor(personToken) {
+  const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: personToken })
+  if (res.status !== 401) throw new Error(`expected an auth-token challenge, got ${res.status}`)
+  const rt = parseRequirement(res.headers.get('aauth-requirement'))['resource-token']
+  if (!rt) throw new Error('no resource_token in challenge')
+  return rt
+}
+
+// Step 3: take the resource token to the PS for an auth token.
+async function obtainAuthToken(agentToken, psMeta, resourceToken, pending) {
+  const res = await signedFetch(psMeta.auth_token_endpoint, {
+    method: 'POST',
+    jwt: agentToken,
+    body: JSON.stringify({ resource_token: resourceToken, capabilities: ['interaction'], prompt: 'consent' }),
+  })
+  if (res.status === 200) {
+    const body = await res.json()
+    if (!body.auth_token) throw new Error('PS returned no auth_token')
+    return { authToken: body.auth_token }
+  }
+  if (res.status === 202) return deferToPersonServer(res, psMeta, pending, 'auth')
+  throw new Error(`PS auth token endpoint ${res.status}`)
+}
+
+// Walk the whole ladder: agent token → person token → resource token → auth
+// token. Returns { authToken }, or { redirecting:true } if the PS deferred to
+// the person at either step (the page is navigating away; stop).
+async function startAuthFlow(pending) {
+  const agentToken = await ensureAgentToken()
+  const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json()
+
+  const person = await obtainPersonToken(agentToken, psMeta, pending)
+  if (person.redirecting) return person
+
+  return finishAfterPersonToken(person.personToken, agentToken, psMeta, pending)
+}
+
+async function finishAfterPersonToken(personToken, agentToken, psMeta, pending) {
+  const resourceToken = await resourceTokenFor(personToken)
+  return obtainAuthToken(agentToken, psMeta, resourceToken, pending)
+}
+
+// Poll a PS deferred-response URL for whichever token we are waiting on.
+async function pollForToken(pollUrl, agentToken, field, maxCycles = 40) {
   for (let i = 0; i < maxCycles; i++) {
     const res = await signedFetch(pollUrl, { jwt: agentToken, headers: { Prefer: 'wait=30' } })
     if (res.status === 200) {
       const body = await res.json()
-      if (body.auth_token) return body.auth_token
+      if (body[field]) return body[field]
     } else if (res.status === 403 || res.status === 404 || res.status === 408) {
       throw new Error(`consent ${res.status}`)
     }
@@ -237,7 +277,9 @@ async function completeWithAuthToken(authToken, pending) {
   return res.json()
 }
 
-// On load, if we're returning from a Hellō redirect, finish the flow.
+// On load, if we're returning from a Hellō redirect, finish the flow. Either
+// rung can defer, so pick up from the one that did: a person token still has
+// the resource-token and auth-token steps ahead of it.
 async function resumePending() {
   const pending = loadPending()
   if (!pending) return false
@@ -247,8 +289,17 @@ async function resumePending() {
   try {
     const agentToken = getAgentToken()
     if (!agentToken) throw new Error('agent token missing after redirect')
-    const authToken = await pollForAuthToken(pending.pollUrl, agentToken)
-    await completeWithAuthToken(authToken, pending)
+
+    if (pending.stage === 'person') {
+      const personToken = await pollForToken(pending.pollUrl, agentToken, 'person_token')
+      const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json()
+      const r = await finishAfterPersonToken(personToken, agentToken, psMeta, pending)
+      if (r.redirecting) return true // deferred again at the auth-token step
+      await completeWithAuthToken(r.authToken, pending)
+    } else {
+      const authToken = await pollForToken(pending.pollUrl, agentToken, 'auth_token')
+      await completeWithAuthToken(authToken, pending)
+    }
   } catch (err) {
     console.error('resume failed', err)
   }
@@ -290,6 +341,30 @@ const logout = () => fetch(`${ORIGIN}/auth/logout`, { method: 'POST' }).then(() 
 const $ = (id) => document.getElementById(id)
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 
+// What each access_mode means, for the badge tooltip. `access_mode` is an
+// IANA registry (Specification Required), so this map is open-ended by
+// design: an unknown value is shown verbatim with a neutral tooltip, never
+// hidden or flagged as an error. This page is a web agent, and an agent that
+// meets a value it does not recognize proceeds as it would with no
+// declaration — calls the resource and reads the AAuth-Requirement it gets
+// back. Nothing here branches on the value.
+const ACCESS_MODE_TITLES = {
+  'agent-token': 'Authorizes on the agent’s identity alone',
+  'person-token': 'Authorizes on the person’s identity alone',
+  'session-token': 'Runs its own authorization and issues a session token',
+  'auth-token': 'Needs an auth token from your person server',
+  'per-call': 'Authorizes each call individually, against that call’s parameters',
+}
+
+const accessModeTitle = (mode) =>
+  ACCESS_MODE_TITLES[mode] ??
+  (mode
+    ? `Access mode “${mode}” — not one this page knows; agents call the resource and read its AAuth-Requirement`
+    : 'No access mode declared — defaults to agent-token')
+
+// The mode a resource declares covers the resource as a whole. A resource may
+// also state a mode per operation, as an R3 operation access annotation in its
+// own vocabulary; those are read from the resource, not from this registry.
 function renderResources(index) {
   const list = $('resources')
   const items = index.resources || []
@@ -303,7 +378,7 @@ function renderResources(index) {
     <div class="card">
       <div class="card-head">
         <a class="name" href="${esc(r.issuer)}" target="_blank" rel="noopener">${esc(r.name)}</a>
-        <span class="badge">${esc(r.access_mode)}</span>
+        <span class="badge" title="${esc(accessModeTitle(r.access_mode))}">${esc(r.access_mode || 'agent-token')}</span>
       </div>
       <p class="desc">${esc(r.description)}</p>
       <div class="host">${esc(r.issuer)}</div>

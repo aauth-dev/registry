@@ -41,5 +41,31 @@ export function llmsTxt(origin: string): string {
 
 Each entry caches the resource's name, description, and access_mode; full,
 current metadata is always at the resource's own /.well-known/aauth-resource.json.
+
+### access_mode
+
+The credential flow a resource expects on a first call:
+
+- \`agent-token\` — the resource authorizes on the agent's identity alone
+- \`person-token\` — the resource authorizes on the person's identity alone
+- \`session-token\` — the resource manages authorization itself and issues a
+  session token, returned in the AAuth-Access header
+- \`auth-token\` — the agent obtains an auth token from its person server using
+  a resource token; the initial call presents a person token
+- \`per-call\` — each invocation is authorized individually against that call's
+  parameters (defined by AAuth R3)
+
+This is an IANA registry (AAuth Access Mode Value Registry, Specification
+Required), so the list can grow. An agent that meets a value it does not
+recognize proceeds exactly as it would with no declaration: call the resource
+and read the AAuth-Requirement that comes back. The declaration is advisory —
+the runtime requirement is authoritative.
+
+A resource may also state the mode per operation rather than for the whole
+resource, as an R3 operation access annotation on the operation in its own
+vocabulary (its OpenAPI document, MCP tool list, AsyncAPI document, or OData
+metadata document). Those annotations replace the resource-wide access_mode for the
+operations they cover. This registry lists only the resource-wide value; read
+the resource's vocabulary for per-operation detail.
 `
 }

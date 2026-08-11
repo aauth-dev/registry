@@ -26,9 +26,9 @@
     mod
   ));
 
-  // node_modules/@hellocoop/httpsig/dist/types.js
+  // ../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/types.js
   var require_types = __commonJS({
-    "node_modules/@hellocoop/httpsig/dist/types.js"(exports) {
+    "../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/types.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.DEFAULT_COMPONENTS_BODY = exports.DEFAULT_COMPONENTS_GET = exports.VALID_DERIVED_COMPONENTS = void 0;
@@ -59,9 +59,9 @@
     }
   });
 
-  // node_modules/@hellocoop/httpsig/dist/errors.js
+  // ../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/errors.js
   var require_errors = __commonJS({
-    "node_modules/@hellocoop/httpsig/dist/errors.js"(exports) {
+    "../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/errors.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.SignatureVerificationError = void 0;
@@ -117,9 +117,9 @@
     }
   });
 
-  // node_modules/@hellocoop/httpsig/dist/utils/crypto.js
+  // ../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/utils/crypto.js
   var require_crypto = __commonJS({
-    "node_modules/@hellocoop/httpsig/dist/utils/crypto.js"(exports) {
+    "../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/utils/crypto.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.UNIMPLEMENTED_ALGORITHMS = exports.SYMMETRIC_ALGORITHMS = exports.POLYMORPHIC_ALGORITHMS = exports.SUPPORTED_ALGORITHMS = exports.FULLY_SPECIFIED_ALGORITHMS = void 0;
@@ -248,15 +248,17 @@
       function validateJwk(jwk) {
         determineAlgorithm(jwk);
       }
+      function withoutAlg(jwk) {
+        const { alg: _alg, ...rest } = jwk;
+        return rest;
+      }
       async function importPrivateKey(jwk) {
         const algorithm = determineAlgorithm(jwk);
-        return await crypto.subtle.importKey("jwk", jwk, algorithm, false, ["sign"]);
+        return await crypto.subtle.importKey("jwk", withoutAlg(jwk), algorithm, false, ["sign"]);
       }
       async function importPublicKey(jwk) {
         const algorithm = determineAlgorithm(jwk);
-        return await crypto.subtle.importKey("jwk", jwk, algorithm, false, [
-          "verify"
-        ]);
+        return await crypto.subtle.importKey("jwk", withoutAlg(jwk), algorithm, false, ["verify"]);
       }
       function getPublicJwk(privateJwk) {
         const { d, p, q, dp, dq, qi, ...publicJwk2 } = privateJwk;
@@ -288,9 +290,9 @@
     }
   });
 
-  // node_modules/@hellocoop/httpsig/dist/utils/base64.js
+  // ../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/utils/base64.js
   var require_base64 = __commonJS({
-    "node_modules/@hellocoop/httpsig/dist/utils/base64.js"(exports) {
+    "../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/utils/base64.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.base64urlEncode = base64urlEncode;
@@ -348,9 +350,9 @@
     }
   });
 
-  // node_modules/@hellocoop/httpsig/dist/utils/signature.js
+  // ../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/utils/signature.js
   var require_signature = __commonJS({
-    "node_modules/@hellocoop/httpsig/dist/utils/signature.js"(exports) {
+    "../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/utils/signature.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.generateSignatureBase = generateSignatureBase;
@@ -674,9 +676,9 @@
     }
   });
 
-  // node_modules/@hellocoop/httpsig/dist/fetch.js
+  // ../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/fetch.js
   var require_fetch = __commonJS({
-    "node_modules/@hellocoop/httpsig/dist/fetch.js"(exports) {
+    "../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/fetch.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.fetch = fetch2;
@@ -832,9 +834,9 @@
     }
   });
 
-  // node_modules/@hellocoop/httpsig/dist/utils/thumbprint.js
+  // ../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/utils/thumbprint.js
   var require_thumbprint = __commonJS({
-    "node_modules/@hellocoop/httpsig/dist/utils/thumbprint.js"(exports) {
+    "../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/utils/thumbprint.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.calculateThumbprint = calculateThumbprint;
@@ -886,9 +888,9 @@
     }
   });
 
-  // node_modules/@hellocoop/httpsig/dist/utils/cache.js
+  // ../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/utils/cache.js
   var require_cache = __commonJS({
-    "node_modules/@hellocoop/httpsig/dist/utils/cache.js"(exports) {
+    "../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/utils/cache.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.BoundedTtlCache = exports.DEFAULT_MAX_ENTRIES = void 0;
@@ -951,9 +953,9 @@
     }
   });
 
-  // node_modules/@hellocoop/httpsig/dist/verify.js
+  // ../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/verify.js
   var require_verify = __commonJS({
-    "node_modules/@hellocoop/httpsig/dist/verify.js"(exports) {
+    "../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/verify.js"(exports) {
       "use strict";
       var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
         if (k2 === void 0) k2 = k;
@@ -1371,9 +1373,9 @@
     }
   });
 
-  // node_modules/@hellocoop/httpsig/dist/helpers.js
+  // ../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/helpers.js
   var require_helpers = __commonJS({
-    "node_modules/@hellocoop/httpsig/dist/helpers.js"(exports) {
+    "../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/helpers.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.expressVerify = expressVerify;
@@ -1429,9 +1431,9 @@
     }
   });
 
-  // node_modules/@hellocoop/httpsig/dist/index.js
+  // ../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/index.js
   var require_dist = __commonJS({
-    "node_modules/@hellocoop/httpsig/dist/index.js"(exports) {
+    "../../aauth-dev/registry/node_modules/@hellocoop/httpsig/dist/index.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.DEFAULT_COMPONENTS_BODY = exports.DEFAULT_COMPONENTS_GET = exports.VALID_DERIVED_COMPONENTS = exports.calculateThumbprint = exports.SignatureVerificationError = exports.SUPPORTED_ALGORITHMS = exports.determineAlgorithm = exports.generateKeyPair = exports.parseAcceptSignatureAlg = exports.generateAcceptSignatureAlgHeader = exports.parseAcceptSignatureScheme = exports.generateAcceptSignatureSchemeHeader = exports.parseAcceptSignature = exports.generateAcceptSignatureHeader = exports.parseSignatureError = exports.generateSignatureErrorHeader = exports.nextJsPagesVerify = exports.nextJsVerify = exports.fastifyVerify = exports.expressVerify = exports.verify = void 0;
@@ -1630,46 +1632,69 @@
     });
     return out;
   }
-  async function startAuthFlow(pending) {
-    let agentToken = await ensureAgentToken();
-    const challenge = async () => {
-      const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: agentToken });
-      return res.status === 401 ? parseRequirement(res.headers.get("aauth-requirement"))["resource-token"] : null;
-    };
-    let resourceToken = await challenge();
-    if (!resourceToken) {
-      await bootstrap();
-      agentToken = getAgentToken();
-      resourceToken = await challenge();
-    }
-    if (!resourceToken) throw new Error("no resource_token in challenge");
-    const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json();
-    const psRes = await signedFetch(psMeta.token_endpoint, {
-      method: "POST",
-      jwt: agentToken,
-      body: JSON.stringify({ resource_token: resourceToken, capabilities: ["interaction"], prompt: "consent" })
-    });
-    if (psRes.status === 200) {
-      const body2 = await psRes.json();
-      if (!body2.auth_token) throw new Error("PS returned no auth_token");
-      return { authToken: body2.auth_token };
-    }
-    if (psRes.status !== 202) throw new Error(`PS token endpoint ${psRes.status}`);
+  async function deferToPersonServer(psRes, psMeta, pending, stage) {
     const body = await psRes.json().catch(() => ({}));
     const req = parseRequirement(psRes.headers.get("aauth-requirement"));
     const interactionUrl = req.url || body.url || psMeta.interaction_endpoint;
     const code = req.code || body.code;
     const pollUrl = new URL(psRes.headers.get("location") || body.location, PS_DEFAULT).toString();
-    savePending({ ...pending, pollUrl });
+    savePending({ ...pending, stage, pollUrl });
     window.location.href = `${interactionUrl}?code=${encodeURIComponent(code)}&callback=${encodeURIComponent(ORIGIN + "/")}`;
     return { redirecting: true };
   }
-  async function pollForAuthToken(pollUrl, agentToken, maxCycles = 40) {
+  async function obtainPersonToken(agentToken, psMeta, pending) {
+    if (!psMeta.person_token_endpoint) throw new Error("PS publishes no person_token_endpoint");
+    const res = await signedFetch(psMeta.person_token_endpoint, {
+      method: "POST",
+      jwt: agentToken,
+      body: JSON.stringify({ resource: ORIGIN })
+    });
+    if (res.status === 200) {
+      const body = await res.json();
+      if (!body.person_token) throw new Error("PS returned no person_token");
+      return { personToken: body.person_token };
+    }
+    if (res.status === 202) return deferToPersonServer(res, psMeta, pending, "person");
+    throw new Error(`PS person token endpoint ${res.status}`);
+  }
+  async function resourceTokenFor(personToken) {
+    const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: personToken });
+    if (res.status !== 401) throw new Error(`expected an auth-token challenge, got ${res.status}`);
+    const rt = parseRequirement(res.headers.get("aauth-requirement"))["resource-token"];
+    if (!rt) throw new Error("no resource_token in challenge");
+    return rt;
+  }
+  async function obtainAuthToken(agentToken, psMeta, resourceToken, pending) {
+    const res = await signedFetch(psMeta.auth_token_endpoint, {
+      method: "POST",
+      jwt: agentToken,
+      body: JSON.stringify({ resource_token: resourceToken, capabilities: ["interaction"], prompt: "consent" })
+    });
+    if (res.status === 200) {
+      const body = await res.json();
+      if (!body.auth_token) throw new Error("PS returned no auth_token");
+      return { authToken: body.auth_token };
+    }
+    if (res.status === 202) return deferToPersonServer(res, psMeta, pending, "auth");
+    throw new Error(`PS auth token endpoint ${res.status}`);
+  }
+  async function startAuthFlow(pending) {
+    const agentToken = await ensureAgentToken();
+    const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json();
+    const person = await obtainPersonToken(agentToken, psMeta, pending);
+    if (person.redirecting) return person;
+    return finishAfterPersonToken(person.personToken, agentToken, psMeta, pending);
+  }
+  async function finishAfterPersonToken(personToken, agentToken, psMeta, pending) {
+    const resourceToken = await resourceTokenFor(personToken);
+    return obtainAuthToken(agentToken, psMeta, resourceToken, pending);
+  }
+  async function pollForToken(pollUrl, agentToken, field, maxCycles = 40) {
     for (let i = 0; i < maxCycles; i++) {
       const res = await signedFetch(pollUrl, { jwt: agentToken, headers: { Prefer: "wait=30" } });
       if (res.status === 200) {
         const body = await res.json();
-        if (body.auth_token) return body.auth_token;
+        if (body[field]) return body[field];
       } else if (res.status === 403 || res.status === 404 || res.status === 408) {
         throw new Error(`consent ${res.status}`);
       }
@@ -1699,8 +1724,16 @@
     try {
       const agentToken = getAgentToken();
       if (!agentToken) throw new Error("agent token missing after redirect");
-      const authToken = await pollForAuthToken(pending.pollUrl, agentToken);
-      await completeWithAuthToken(authToken, pending);
+      if (pending.stage === "person") {
+        const personToken = await pollForToken(pending.pollUrl, agentToken, "person_token");
+        const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json();
+        const r = await finishAfterPersonToken(personToken, agentToken, psMeta, pending);
+        if (r.redirecting) return true;
+        await completeWithAuthToken(r.authToken, pending);
+      } else {
+        const authToken = await pollForToken(pending.pollUrl, agentToken, "auth_token");
+        await completeWithAuthToken(authToken, pending);
+      }
     } catch (err) {
       console.error("resume failed", err);
     }
@@ -1731,6 +1764,14 @@
   });
   var $ = (id) => document.getElementById(id);
   var esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  var ACCESS_MODE_TITLES = {
+    "agent-token": "Authorizes on the agent\u2019s identity alone",
+    "person-token": "Authorizes on the person\u2019s identity alone",
+    "session-token": "Runs its own authorization and issues a session token",
+    "auth-token": "Needs an auth token from your person server",
+    "per-call": "Authorizes each call individually, against that call\u2019s parameters"
+  };
+  var accessModeTitle = (mode) => ACCESS_MODE_TITLES[mode] ?? (mode ? `Access mode \u201C${mode}\u201D \u2014 not one this page knows; agents call the resource and read its AAuth-Requirement` : "No access mode declared \u2014 defaults to agent-token");
   function renderResources(index) {
     const list = $("resources");
     const items = index.resources || [];
@@ -1743,7 +1784,7 @@
     <div class="card">
       <div class="card-head">
         <a class="name" href="${esc(r.issuer)}" target="_blank" rel="noopener">${esc(r.name)}</a>
-        <span class="badge">${esc(r.access_mode)}</span>
+        <span class="badge" title="${esc(accessModeTitle(r.access_mode))}">${esc(r.access_mode || "agent-token")}</span>
       </div>
       <p class="desc">${esc(r.description)}</p>
       <div class="host">${esc(r.issuer)}</div>

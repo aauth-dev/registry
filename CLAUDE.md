@@ -29,6 +29,16 @@ registry-aauth-dev → Deployments).
 - `npm run typecheck` — `tsc --noEmit`.
 - `bash scripts/test.sh [base_url]` — curl smoke tests.
 
+**Signed requests fail under plain `wrangler dev`, and it is not your
+signature.** The `[[routes]] custom_domain` entry makes the dev server hand
+the Worker a URL whose host is `registry.aauth.dev`, so `new URL(c.req.url)
+.host` — what every handler passes to httpsig as `authority` — does not match
+the `@authority` the client signed (`localhost:PORT`). httpsig reports
+`verified: false` with **no** `error` string, which reads like a bad key. To
+test signed flows locally, run with a config copy that drops the `[[routes]]`
+block, and set `ORIGIN` to `http://localhost:PORT` so `aud` checks line up
+(`.dev.vars` overrides `[vars]`, so set it there).
+
 ## Architecture quick ref
 
 - Cloudflare Worker (`src/index.ts`, Hono). Plays the AAuth **resource**
@@ -61,7 +71,7 @@ registry-aauth-dev → Deployments).
 | `GET /.well-known/jwks.json` | none | Public key (shared by both roles) |
 | `GET /robots.txt` · `/sitemap.xml` · `/llms.txt` | none | Discoverability — keep in sync with routes |
 | `POST /bootstrap` | sig=hwk | Mint a browser web-agent token (AP role); `ps` defaults to Hellō |
-| `GET /auth/identity` | agent/auth token | Login: agent token → resource_token challenge; auth token → set session |
+| `GET /auth/identity` | agent/person/auth token | Login ladder: agent token → 401 `requirement=person-token`; person token → 401 `requirement=auth-token` + resource_token; auth token → set session |
 | `GET /auth/session` | session cookie | Current human session or `{logged_in:false}` |
 | `POST /auth/logout` | — | Clear session cookie |
 | `GET /resources` | agent token | List (R2 index, ETag) |
@@ -73,6 +83,17 @@ registry-aauth-dev → Deployments).
 (identity resource, whoami-style auth-token flow vs Hellō PS), `src/session.ts`
 (signed session cookie). Server side done; the browser UI (`public/`, ported
 from playground's client) is still to come.
+
+**Person token first.** AAuth -11: a resource MUST have verified a person
+token before it issues a resource token, and MUST challenge with
+`requirement=person-token` when it has not — only a PS can redeem a resource
+token, so one that names no person is unredeemable. `src/login.ts` verifies
+the person token (`typ: aa-person+jwt`, `dwk: aauth-person.json`, JWKS at
+`{iss}/.well-known/{dwk}`, `aud` = our ORIGIN, `cnf.jwk` = the request signing
+key) and copies its `iss`/`sub`/`jti` into the resource token's
+`ps`/`sub`/`person_token_jti`. A bad one is `400 invalid_person_token`. This
+does not change the registry's own `access_mode`: listing still needs only an
+agent token.
 
 ## Cloudflare setup (one-time, outside this repo)
 

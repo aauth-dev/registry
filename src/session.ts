@@ -5,7 +5,7 @@
 // JWK), so no extra secret is needed.
 
 import type { Context } from 'hono'
-import { getPublicJWK, importSigningKey, signJWT, verifyJWT } from './crypto'
+import { getPublicJWK, importSigningKey, signJWT, verifyJWT, SIGNING_ALG } from './crypto'
 import type { Env, SubmitterIdentity } from './types'
 
 type HonoEnv = { Bindings: Env }
@@ -20,7 +20,11 @@ export async function mintSessionCookie(env: Env, id: HumanIdentity): Promise<st
   const publicJwk = await getPublicJWK(env.SIGNING_KEY)
   const now = Math.floor(Date.now() / 1000)
   const jwt = await signJWT(
-    { alg: 'EdDSA', typ: 'registry-session+jwt', kid: publicJwk.kid },
+    // registry-session+jwt is this service's own cookie format, not an AAuth
+    // token type, so no AAuth rule reaches it — but it is signed with the
+    // same key and verified by the same verifyJWT, which no longer accepts
+    // "EdDSA", so it moves to the fully-specified alg with everything else.
+    { alg: SIGNING_ALG, typ: 'registry-session+jwt', kid: publicJwk.kid },
     { ...id, iat: now, exp: now + SESSION_TTL },
     privateKey,
   )

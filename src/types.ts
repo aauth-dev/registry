@@ -6,9 +6,32 @@ export interface Env {
   EVENTS_QUEUE: Queue // bound to aauth-events; drained + signed by shipper.aauth.dev → Freezer
 }
 
-export type AccessMode = 'agent-token' | 'aauth-access-token' | 'auth-token'
+// Values of the `access_mode` resource-metadata field. AAuth -11 turned this
+// into an IANA registry (AAuth Access Mode Value Registry, Specification
+// Required), seeded with the first four; R3 registers `per-call`. The -11
+// rename: `aauth-access-token` → `session-token` — the credential a resource
+// issues for its own consumption, returned in the `AAuth-Access` header.
+//
+// This list is the set of values the REGISTRY will list, not a limit on what
+// exists. Because the field is an open registry, agent-side code must never
+// treat an unlisted value as an error — see the note in validate.ts.
+export type AccessMode =
+  | 'agent-token' // resource authorizes on the agent's identity alone
+  | 'person-token' // resource authorizes on the person's identity alone
+  | 'session-token' // resource-managed; it issues a session token (AAuth-Access)
+  | 'auth-token' // agent gets an auth token from its PS with a resource token
+  | 'per-call' // R3: each invocation authorized against that call's parameters
 
-export const ACCESS_MODES: AccessMode[] = ['agent-token', 'aauth-access-token', 'auth-token']
+export const ACCESS_MODES: AccessMode[] = [
+  'agent-token',
+  'person-token',
+  'session-token',
+  'auth-token',
+  'per-call',
+]
+
+// Spec default when a resource publishes no `access_mode`.
+export const DEFAULT_ACCESS_MODE: AccessMode = 'agent-token'
 
 // The verified person behind a submission — asserted by their Person
 // Server (Hellō) via the AAuth auth-token flow. Every new add carries one.

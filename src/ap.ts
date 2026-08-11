@@ -6,7 +6,14 @@
 
 import type { Context } from 'hono'
 import { verify as httpSigVerify } from '@hellocoop/httpsig'
-import { getPublicJWK, importSigningKey, generateJTI, sanitizeCnfJwk, signJWT } from './crypto'
+import {
+  getPublicJWK,
+  importSigningKey,
+  generateJTI,
+  sanitizeCnfJwk,
+  signJWT,
+  SIGNING_ALG,
+} from './crypto'
 import type { Env } from './types'
 
 type HonoEnv = { Bindings: Env }
@@ -91,7 +98,9 @@ export async function mintAgentToken(
   const publicJwk = await getPublicJWK(env.SIGNING_KEY)
   const now = Math.floor(Date.now() / 1000)
 
-  const header = { alg: 'EdDSA', typ: 'aa-agent+jwt', kid: publicJwk.kid }
+  // alg is fully specified (AAuth -11 §Agent Token Structure); cnf.jwk gets
+  // its own fully-specified alg from sanitizeCnfJwk.
+  const header = { alg: SIGNING_ALG, typ: 'aa-agent+jwt', kid: publicJwk.kid }
   const payload: Record<string, unknown> = {
     iss: origin,
     dwk: 'aauth-agent.json',
