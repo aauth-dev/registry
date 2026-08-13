@@ -59,9 +59,14 @@ export async function verifyAgentToken(
     ...(rawBody !== undefined ? { body: rawBody } : {}),
   })
 
+  // The registry is a resource, so it does not REQUIRE content-digest
+  // coverage (AAuth §10.3 binds PS and AS endpoints; resources declare
+  // needs instead). For a body-carrying request the challenge still asks
+  // for content-digest + content-type — what an httpsig 2.2 client signs
+  // by default — while verification accepts signatures without them.
   const components =
     rawBody !== undefined
-      ? ['@method', '@authority', '@path', 'content-type', 'signature-key']
+      ? ['@method', '@authority', '@path', 'content-digest', 'content-type', 'signature-key']
       : ['@method', '@authority', '@path', 'signature-key']
 
   if (!sigResult.verified) {

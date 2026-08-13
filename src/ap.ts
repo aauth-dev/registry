@@ -40,14 +40,20 @@ export interface SigHwkResult {
 export async function verifySigHwk(c: Context<HonoEnv>): Promise<SigHwkResult | Response> {
   const rawBody = await c.req.text()
   const url = new URL(c.req.url)
-  const sigResult = await httpSigVerify({
-    method: c.req.method,
-    authority: url.host,
-    path: url.pathname,
-    query: url.search.replace(/^\?/, ''),
-    headers: c.req.raw.headers,
-    body: rawBody,
-  })
+  // /bootstrap mints agent tokens, so it enforces the AAuth HTTPSig profile
+  // (§10.3): a body-carrying request MUST cover content-digest. The
+  // /resources API is the resource role and stays exempt (agent-token.ts).
+  const sigResult = await httpSigVerify(
+    {
+      method: c.req.method,
+      authority: url.host,
+      path: url.pathname,
+      query: url.search.replace(/^\?/, ''),
+      headers: c.req.raw.headers,
+      body: rawBody,
+    },
+    { requireContentDigest: true },
+  )
   if (!sigResult.verified) {
     return c.json({ error: `signature verification failed: ${sigResult.error || 'unknown'}` }, 401) as unknown as Response
   }

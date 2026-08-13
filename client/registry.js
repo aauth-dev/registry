@@ -83,13 +83,14 @@ async function publicJwk(kp) {
 }
 
 // sig=jwt call (agent_token or auth_token), with optional body + headers.
+// No explicit component list: httpsig 2.2's defaults are exactly the lists
+// this used to hand-roll, and its contentDigest: 'auto' default appends
+// content-digest for our string bodies — which §10.3 requires on the
+// body-carrying calls this makes to PS token endpoints.
 async function signedFetch(url, { method = 'GET', body, jwt, headers = {} } = {}) {
   const kp = await getKeyPair()
   const pub = await publicJwk(kp)
   const hasBody = body != null
-  const components = hasBody
-    ? ['@method', '@authority', '@path', 'content-type', 'signature-key']
-    : ['@method', '@authority', '@path', 'signature-key']
   // sigFetch returns a plain Response unless returnSent is set.
   return sigFetch(url, {
     method,
@@ -98,7 +99,6 @@ async function signedFetch(url, { method = 'GET', body, jwt, headers = {} } = {}
     signingKey: pub,
     signingCryptoKey: kp.privateKey,
     signatureKey: { type: 'jwt', jwt },
-    components,
   })
 }
 
@@ -106,6 +106,9 @@ async function signedFetch(url, { method = 'GET', body, jwt, headers = {} } = {}
 async function bootstrap() {
   const kp = await getKeyPair()
   const pub = await publicJwk(kp)
+  // Default components + contentDigest: 'auto' cover content-digest and
+  // content-type over the JSON body, which /bootstrap requires (it mints
+  // tokens, so it enforces §10.3 coverage).
   const response = await sigFetch(`${ORIGIN}/bootstrap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -113,7 +116,6 @@ async function bootstrap() {
     signingKey: pub,
     signingCryptoKey: kp.privateKey,
     signatureKey: { type: 'hwk' },
-    components: ['@method', '@authority', '@path', 'content-type', 'signature-key'],
   })
   const data = await response.json()
   if (!response.ok || !data.agent_token) throw new Error(data.error || 'bootstrap failed')
