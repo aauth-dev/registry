@@ -156,7 +156,7 @@ async function challengeForAuthToken(
   const publicJwk = await getPublicJWK(c.env.SIGNING_KEY)
 
   const resourceToken = await signJWT(
-    { alg: 'EdDSA', typ: 'aa-resource+jwt', kid: publicJwk.kid },
+    { alg: 'Ed25519', typ: 'aa-resource+jwt', kid: publicJwk.kid },
     {
       iss: origin,
       dwk: 'aauth-resource.json',

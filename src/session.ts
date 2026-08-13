@@ -20,7 +20,7 @@ export async function mintSessionCookie(env: Env, id: HumanIdentity): Promise<st
   const publicJwk = await getPublicJWK(env.SIGNING_KEY)
   const now = Math.floor(Date.now() / 1000)
   const jwt = await signJWT(
-    { alg: 'EdDSA', typ: 'registry-session+jwt', kid: publicJwk.kid },
+    { alg: 'Ed25519', typ: 'registry-session+jwt', kid: publicJwk.kid },
     { ...id, iat: now, exp: now + SESSION_TTL },
     privateKey,
   )

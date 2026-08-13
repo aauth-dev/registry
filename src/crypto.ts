@@ -96,6 +96,9 @@ export function decodeJWTPayload(jwt: string): Record<string, unknown> {
 // JWT alg → WebCrypto parameters
 const JWT_ALG_PARAMS: Record<string, { importAlgo: any; verifyAlgo: any }> = {
   EdDSA: { importAlgo: { name: 'Ed25519' }, verifyAlgo: 'Ed25519' },
+  // RFC 9864 fully-specified identifier; what we mint, and what peers on
+  // signature-key -08 conventions mint instead of the polymorphic EdDSA.
+  Ed25519: { importAlgo: { name: 'Ed25519' }, verifyAlgo: 'Ed25519' },
   RS256: {
     importAlgo: { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
     verifyAlgo: 'RSASSA-PKCS1-v1_5',

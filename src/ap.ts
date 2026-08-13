@@ -91,7 +91,7 @@ export async function mintAgentToken(
   const publicJwk = await getPublicJWK(env.SIGNING_KEY)
   const now = Math.floor(Date.now() / 1000)
 
-  const header = { alg: 'EdDSA', typ: 'aa-agent+jwt', kid: publicJwk.kid }
+  const header = { alg: 'Ed25519', typ: 'aa-agent+jwt', kid: publicJwk.kid }
   const payload: Record<string, unknown> = {
     iss: origin,
     dwk: 'aauth-agent.json',
