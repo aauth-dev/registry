@@ -44,11 +44,27 @@ discovery convenience, never a gatekeeper.
 Body: `{ "issuer": "https://notes.aauth.dev" }`. The registry fetches **only**
 `https://{host}/.well-known/aauth-resource.json` (no redirects, timeout, size
 cap), and requires `issuer === https://{host}` (anti-spoof — proves control of
-the host), a present `description`, and a valid `access_mode`. It caches the
-resource's `name`, `description`, `access_mode`, `logo_uri`, and the submitting
-agent (`submitted_by`).
+the host), a present `description`, and an `access_mode` the registry lists
+(or none — the default is `agent-token`). It caches the resource's `name`,
+`description`, `access_mode`, `documentation_uri`, and the submitting agent
+(`submitted_by`).
 
 Responses: `201 added`, `200 already_present`, `422 metadata_invalid`.
+
+### `access_mode`
+
+The registry lists the five registered values: `agent-token`, `person-token`,
+`session-token`, `auth-token`, and `per-call` (defined by AAuth R3). The field
+is an IANA registry with a Specification Required policy, so more values can
+appear; the registry declining to list an unregistered one is an editorial
+choice about this directory, not protocol behaviour. **Agents must not copy
+it:** an agent meeting an `access_mode` it does not recognize proceeds as it
+would with no declaration — it calls the resource and reads the
+`AAuth-Requirement` it gets back.
+
+The value here describes the resource as a whole. A resource may also state a
+mode per operation, as an R3 operation access annotation on the operation in
+its own vocabulary; read the resource's vocabulary for that detail.
 
 ## Develop
 

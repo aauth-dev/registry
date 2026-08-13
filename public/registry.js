@@ -248,15 +248,17 @@
       function validateJwk(jwk) {
         determineAlgorithm(jwk);
       }
+      function withoutAlg(jwk) {
+        const { alg: _alg, ...rest } = jwk;
+        return rest;
+      }
       async function importPrivateKey(jwk) {
         const algorithm = determineAlgorithm(jwk);
-        return await crypto.subtle.importKey("jwk", jwk, algorithm, false, ["sign"]);
+        return await crypto.subtle.importKey("jwk", withoutAlg(jwk), algorithm, false, ["sign"]);
       }
       async function importPublicKey(jwk) {
         const algorithm = determineAlgorithm(jwk);
-        return await crypto.subtle.importKey("jwk", jwk, algorithm, false, [
-          "verify"
-        ]);
+        return await crypto.subtle.importKey("jwk", withoutAlg(jwk), algorithm, false, ["verify"]);
       }
       function getPublicJwk(privateJwk) {
         const { d, p, q, dp, dq, qi, ...publicJwk2 } = privateJwk;
@@ -348,6 +350,612 @@
     }
   });
 
+  // node_modules/@hellocoop/httpsig/dist/vendor/structured-headers/types.js
+  var require_types2 = __commonJS({
+    "node_modules/@hellocoop/httpsig/dist/vendor/structured-headers/types.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.ByteSequence = void 0;
+      var ByteSequence = class {
+        base64Value;
+        constructor(base64Value) {
+          this.base64Value = base64Value;
+        }
+        toBase64() {
+          return this.base64Value;
+        }
+      };
+      exports.ByteSequence = ByteSequence;
+    }
+  });
+
+  // node_modules/@hellocoop/httpsig/dist/vendor/structured-headers/util.js
+  var require_util = __commonJS({
+    "node_modules/@hellocoop/httpsig/dist/vendor/structured-headers/util.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.isAscii = isAscii;
+      exports.isValidTokenStr = isValidTokenStr;
+      exports.isValidKeyStr = isValidKeyStr;
+      exports.isInnerList = isInnerList;
+      exports.isByteSequence = isByteSequence;
+      var asciiRe = /^[\x20-\x7E]*$/;
+      var tokenRe = /^[a-zA-Z*][:/!#$%&'*+\-.^_`|~A-Za-z0-9]*$/;
+      var keyRe = /^[a-z*][*\-_.a-z0-9]*$/;
+      function isAscii(str) {
+        return asciiRe.test(str);
+      }
+      function isValidTokenStr(str) {
+        return tokenRe.test(str);
+      }
+      function isValidKeyStr(str) {
+        return keyRe.test(str);
+      }
+      function isInnerList(input) {
+        return Array.isArray(input[0]);
+      }
+      function isByteSequence(input) {
+        return typeof input === "object" && "base64Value" in input;
+      }
+    }
+  });
+
+  // node_modules/@hellocoop/httpsig/dist/vendor/structured-headers/token.js
+  var require_token = __commonJS({
+    "node_modules/@hellocoop/httpsig/dist/vendor/structured-headers/token.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.Token = void 0;
+      var util_js_1 = require_util();
+      var Token = class {
+        value;
+        constructor(value) {
+          if (!(0, util_js_1.isValidTokenStr)(value)) {
+            throw new TypeError("Invalid character in Token string. Tokens must start with *, A-Z and the rest of the string may only contain a-z, A-Z, 0-9, :/!#$%&'*+-.^_`|~");
+          }
+          this.value = value;
+        }
+        toString() {
+          return this.value;
+        }
+      };
+      exports.Token = Token;
+    }
+  });
+
+  // node_modules/@hellocoop/httpsig/dist/vendor/structured-headers/parser.js
+  var require_parser = __commonJS({
+    "node_modules/@hellocoop/httpsig/dist/vendor/structured-headers/parser.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.ParseError = void 0;
+      exports.parseDictionary = parseDictionary;
+      exports.parseList = parseList;
+      exports.parseItem = parseItem;
+      var types_js_1 = require_types2();
+      var token_js_1 = require_token();
+      var util_js_1 = require_util();
+      function parseDictionary(input) {
+        const parser = new Parser(input);
+        return parser.parseDictionary();
+      }
+      function parseList(input) {
+        const parser = new Parser(input);
+        return parser.parseList();
+      }
+      function parseItem(input) {
+        const parser = new Parser(input);
+        return parser.parseItem();
+      }
+      var ParseError = class extends Error {
+        constructor(position, message) {
+          super(`Parse error: ${message} at offset ${position}`);
+        }
+      };
+      exports.ParseError = ParseError;
+      var Parser = class {
+        input;
+        pos;
+        constructor(input) {
+          this.input = input;
+          this.pos = 0;
+        }
+        parseDictionary() {
+          this.skipWS();
+          const dictionary = /* @__PURE__ */ new Map();
+          while (!this.eof()) {
+            const thisKey = this.parseKey();
+            let member;
+            if (this.lookChar() === "=") {
+              this.pos++;
+              member = this.parseItemOrInnerList();
+            } else {
+              member = [true, this.parseParameters()];
+            }
+            dictionary.set(thisKey, member);
+            this.skipOWS();
+            if (this.eof()) {
+              return dictionary;
+            }
+            this.expectChar(",");
+            this.pos++;
+            this.skipOWS();
+            if (this.eof()) {
+              throw new ParseError(this.pos, "Dictionary contained a trailing comma");
+            }
+          }
+          return dictionary;
+        }
+        parseList() {
+          this.skipWS();
+          const members = [];
+          while (!this.eof()) {
+            members.push(this.parseItemOrInnerList());
+            this.skipOWS();
+            if (this.eof()) {
+              return members;
+            }
+            this.expectChar(",");
+            this.pos++;
+            this.skipOWS();
+            if (this.eof()) {
+              throw new ParseError(this.pos, "A list may not end with a trailing comma");
+            }
+          }
+          return members;
+        }
+        parseItem(standaloneItem = true) {
+          if (standaloneItem)
+            this.skipWS();
+          const result = [this.parseBareItem(), this.parseParameters()];
+          if (standaloneItem)
+            this.checkTrail();
+          return result;
+        }
+        parseItemOrInnerList() {
+          if (this.lookChar() === "(") {
+            return this.parseInnerList();
+          } else {
+            return this.parseItem(false);
+          }
+        }
+        parseInnerList() {
+          this.expectChar("(");
+          this.pos++;
+          const innerList = [];
+          while (!this.eof()) {
+            this.skipWS();
+            if (this.lookChar() === ")") {
+              this.pos++;
+              return [innerList, this.parseParameters()];
+            }
+            innerList.push(this.parseItem(false));
+            const nextChar = this.lookChar();
+            if (nextChar !== " " && nextChar !== ")") {
+              throw new ParseError(this.pos, "Expected a whitespace or ) after every item in an inner list");
+            }
+          }
+          throw new ParseError(this.pos, "Could not find end of inner list");
+        }
+        parseBareItem() {
+          const char = this.lookChar();
+          if (char === void 0) {
+            throw new ParseError(this.pos, "Unexpected end of string");
+          }
+          if (char.match(/^[-0-9]/)) {
+            return this.parseIntegerOrDecimal();
+          }
+          if (char === '"') {
+            return this.parseString();
+          }
+          if (char.match(/^[A-Za-z*]/)) {
+            return this.parseToken();
+          }
+          if (char === ":") {
+            return this.parseByteSequence();
+          }
+          if (char === "?") {
+            return this.parseBoolean();
+          }
+          throw new ParseError(this.pos, "Unexpected input");
+        }
+        parseParameters() {
+          const parameters = /* @__PURE__ */ new Map();
+          while (!this.eof()) {
+            const char = this.lookChar();
+            if (char !== ";") {
+              break;
+            }
+            this.pos++;
+            this.skipWS();
+            const key = this.parseKey();
+            let value = true;
+            if (this.lookChar() === "=") {
+              this.pos++;
+              value = this.parseBareItem();
+            }
+            parameters.set(key, value);
+          }
+          return parameters;
+        }
+        parseIntegerOrDecimal() {
+          let type = "integer";
+          let sign = 1;
+          let inputNumber = "";
+          if (this.lookChar() === "-") {
+            sign = -1;
+            this.pos++;
+          }
+          if (!isDigit(this.lookChar())) {
+            throw new ParseError(this.pos, "Expected a digit (0-9)");
+          }
+          while (!this.eof()) {
+            const char = this.getChar();
+            if (isDigit(char)) {
+              inputNumber += char;
+            } else if (type === "integer" && char === ".") {
+              if (inputNumber.length > 12) {
+                throw new ParseError(this.pos, "Exceeded maximum decimal length");
+              }
+              inputNumber += ".";
+              type = "decimal";
+            } else {
+              this.pos--;
+              break;
+            }
+            if (type === "integer" && inputNumber.length > 15) {
+              throw new ParseError(this.pos, "Exceeded maximum integer length");
+            }
+            if (type === "decimal" && inputNumber.length > 16) {
+              throw new ParseError(this.pos, "Exceeded maximum decimal length");
+            }
+          }
+          if (type === "integer") {
+            return parseInt(inputNumber, 10) * sign;
+          } else {
+            if (inputNumber.endsWith(".")) {
+              throw new ParseError(this.pos, "Decimal cannot end on a period");
+            }
+            if (inputNumber.split(".")[1].length > 3) {
+              throw new ParseError(this.pos, "Number of digits after the decimal point cannot exceed 3");
+            }
+            return parseFloat(inputNumber) * sign;
+          }
+        }
+        parseString() {
+          let outputString = "";
+          this.expectChar('"');
+          this.pos++;
+          while (!this.eof()) {
+            const char = this.getChar();
+            if (char === "\\") {
+              if (this.eof()) {
+                throw new ParseError(this.pos, "Unexpected end of input");
+              }
+              const nextChar = this.getChar();
+              if (nextChar !== "\\" && nextChar !== '"') {
+                throw new ParseError(this.pos, "A backslash must be followed by another backslash or double quote");
+              }
+              outputString += nextChar;
+            } else if (char === '"') {
+              return outputString;
+            } else if (!(0, util_js_1.isAscii)(char)) {
+              throw new ParseError(this.pos, "Strings must be in the ASCII range");
+            } else {
+              outputString += char;
+            }
+          }
+          throw new ParseError(this.pos, "Unexpected end of input");
+        }
+        parseToken() {
+          let outputString = "";
+          while (!this.eof()) {
+            const char = this.lookChar();
+            if (char === void 0 || !/^[:/!#$%&'*+\-.^_`|~A-Za-z0-9]$/.test(char)) {
+              return new token_js_1.Token(outputString);
+            }
+            outputString += this.getChar();
+          }
+          return new token_js_1.Token(outputString);
+        }
+        parseByteSequence() {
+          this.expectChar(":");
+          this.pos++;
+          const endPos = this.input.indexOf(":", this.pos);
+          if (endPos === -1) {
+            throw new ParseError(this.pos, 'Could not find a closing ":" character to mark end of Byte Sequence');
+          }
+          const b64Content = this.input.substring(this.pos, endPos);
+          this.pos += b64Content.length + 1;
+          if (!/^[A-Za-z0-9+/=]*$/.test(b64Content)) {
+            throw new ParseError(this.pos, "ByteSequence does not contain a valid base64 string");
+          }
+          return new types_js_1.ByteSequence(b64Content);
+        }
+        parseBoolean() {
+          this.expectChar("?");
+          this.pos++;
+          const char = this.getChar();
+          if (char === "1") {
+            return true;
+          }
+          if (char === "0") {
+            return false;
+          }
+          throw new ParseError(this.pos, 'Unexpected character. Expected a "1" or a "0"');
+        }
+        parseKey() {
+          if (!this.lookChar()?.match(/^[a-z*]/)) {
+            throw new ParseError(this.pos, "A key must begin with an asterisk or letter (a-z)");
+          }
+          let outputString = "";
+          while (!this.eof()) {
+            const char = this.lookChar();
+            if (char === void 0 || !/^[a-z0-9_\-.*]$/.test(char)) {
+              return outputString;
+            }
+            outputString += this.getChar();
+          }
+          return outputString;
+        }
+        /**
+         * Looks at the next character without advancing the cursor.
+         *
+         * Returns undefined if we were at the end of the string.
+         */
+        lookChar() {
+          return this.input[this.pos];
+        }
+        /**
+         * Checks if the next character is 'char', and fail otherwise.
+         */
+        expectChar(char) {
+          if (this.lookChar() !== char) {
+            throw new ParseError(this.pos, `Expected ${char}`);
+          }
+        }
+        getChar() {
+          return this.input[this.pos++];
+        }
+        eof() {
+          return this.pos >= this.input.length;
+        }
+        // Advances the pointer to skip all whitespace.
+        skipOWS() {
+          while (true) {
+            const c = this.input.substr(this.pos, 1);
+            if (c === " " || c === "	") {
+              this.pos++;
+            } else {
+              break;
+            }
+          }
+        }
+        // Advances the pointer to skip all spaces
+        skipWS() {
+          while (this.lookChar() === " ") {
+            this.pos++;
+          }
+        }
+        // At the end of parsing, we need to make sure there are no bytes after the
+        // header except whitespace.
+        checkTrail() {
+          this.skipWS();
+          if (!this.eof()) {
+            throw new ParseError(this.pos, "Unexpected characters at end of input");
+          }
+        }
+      };
+      exports.default = Parser;
+      var isDigitRegex = /^[0-9]$/;
+      function isDigit(char) {
+        if (char === void 0)
+          return false;
+        return isDigitRegex.test(char);
+      }
+    }
+  });
+
+  // node_modules/@hellocoop/httpsig/dist/vendor/structured-headers/serializer.js
+  var require_serializer = __commonJS({
+    "node_modules/@hellocoop/httpsig/dist/vendor/structured-headers/serializer.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.SerializeError = void 0;
+      exports.serializeList = serializeList;
+      exports.serializeDictionary = serializeDictionary;
+      exports.serializeItem = serializeItem;
+      exports.serializeInnerList = serializeInnerList;
+      exports.serializeBareItem = serializeBareItem;
+      exports.serializeInteger = serializeInteger;
+      exports.serializeDecimal = serializeDecimal;
+      exports.serializeString = serializeString;
+      exports.serializeBoolean = serializeBoolean;
+      exports.serializeByteSequence = serializeByteSequence;
+      exports.serializeToken = serializeToken;
+      exports.serializeParameters = serializeParameters;
+      exports.serializeKey = serializeKey;
+      var types_js_1 = require_types2();
+      var token_js_1 = require_token();
+      var util_js_1 = require_util();
+      var SerializeError = class extends Error {
+      };
+      exports.SerializeError = SerializeError;
+      function serializeList(input) {
+        return input.map((value) => {
+          if ((0, util_js_1.isInnerList)(value)) {
+            return serializeInnerList(value);
+          } else {
+            return serializeItem(value);
+          }
+        }).join(", ");
+      }
+      function serializeDictionary(input) {
+        return Array.from(input.entries()).map(([key, value]) => {
+          let out = serializeKey(key);
+          if (value[0] === true) {
+            out += serializeParameters(value[1]);
+          } else {
+            out += "=";
+            if ((0, util_js_1.isInnerList)(value)) {
+              out += serializeInnerList(value);
+            } else {
+              out += serializeItem(value);
+            }
+          }
+          return out;
+        }).join(", ");
+      }
+      function serializeItem(input) {
+        return serializeBareItem(input[0]) + serializeParameters(input[1]);
+      }
+      function serializeInnerList(input) {
+        return `(${input[0].map((value) => serializeItem(value)).join(" ")})${serializeParameters(input[1])}`;
+      }
+      function serializeBareItem(input) {
+        if (typeof input === "number") {
+          if (Number.isInteger(input)) {
+            return serializeInteger(input);
+          }
+          return serializeDecimal(input);
+        }
+        if (typeof input === "string") {
+          return serializeString(input);
+        }
+        if (input instanceof token_js_1.Token) {
+          return serializeToken(input);
+        }
+        if (input instanceof types_js_1.ByteSequence) {
+          return serializeByteSequence(input);
+        }
+        if (typeof input === "boolean") {
+          return serializeBoolean(input);
+        }
+        throw new SerializeError(`Cannot serialize values of type ${typeof input}`);
+      }
+      function serializeInteger(input) {
+        if (input < -999999999999999 || input > 999999999999999) {
+          throw new SerializeError("Structured headers can only encode integers in the range range of -999,999,999,999,999 to 999,999,999,999,999 inclusive");
+        }
+        return input.toString();
+      }
+      function serializeDecimal(input) {
+        const out = input.toFixed(3).replace(/0+$/, "");
+        const signifantDigits = out.split(".")[0].replace("-", "").length;
+        if (signifantDigits > 12) {
+          throw new SerializeError("Fractional numbers are not allowed to have more than 12 significant digits before the decimal point");
+        }
+        return out;
+      }
+      function serializeString(input) {
+        if (!(0, util_js_1.isAscii)(input)) {
+          throw new SerializeError("Only ASCII strings may be serialized");
+        }
+        return `"${input.replace(/("|\\)/g, (v) => "\\" + v)}"`;
+      }
+      function serializeBoolean(input) {
+        return input ? "?1" : "?0";
+      }
+      function serializeByteSequence(input) {
+        return `:${input.toBase64()}:`;
+      }
+      function serializeToken(input) {
+        return input.toString();
+      }
+      function serializeParameters(input) {
+        return Array.from(input).map(([key, value]) => {
+          let out = ";" + serializeKey(key);
+          if (value !== true) {
+            out += "=" + serializeBareItem(value);
+          }
+          return out;
+        }).join("");
+      }
+      function serializeKey(input) {
+        if (!(0, util_js_1.isValidKeyStr)(input)) {
+          throw new SerializeError("Keys in dictionaries must only contain lowercase letter, numbers, _-*. and must start with a letter or *");
+        }
+        return input;
+      }
+    }
+  });
+
+  // node_modules/@hellocoop/httpsig/dist/structured-fields.js
+  var require_structured_fields = __commonJS({
+    "node_modules/@hellocoop/httpsig/dist/structured-fields.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.isValidKeyStr = exports.isValidTokenStr = exports.isByteSequence = exports.isInnerList = exports.ByteSequence = exports.Token = exports.SerializeError = exports.serializeParameters = exports.serializeBareItem = exports.serializeInnerList = exports.serializeItem = exports.serializeList = exports.serializeDictionary = exports.ParseError = exports.parseItem = exports.parseList = exports.parseDictionary = void 0;
+      exports.bareItemToString = bareItemToString;
+      var parser_js_1 = require_parser();
+      Object.defineProperty(exports, "parseDictionary", { enumerable: true, get: function() {
+        return parser_js_1.parseDictionary;
+      } });
+      Object.defineProperty(exports, "parseList", { enumerable: true, get: function() {
+        return parser_js_1.parseList;
+      } });
+      Object.defineProperty(exports, "parseItem", { enumerable: true, get: function() {
+        return parser_js_1.parseItem;
+      } });
+      Object.defineProperty(exports, "ParseError", { enumerable: true, get: function() {
+        return parser_js_1.ParseError;
+      } });
+      var serializer_js_1 = require_serializer();
+      Object.defineProperty(exports, "serializeDictionary", { enumerable: true, get: function() {
+        return serializer_js_1.serializeDictionary;
+      } });
+      Object.defineProperty(exports, "serializeList", { enumerable: true, get: function() {
+        return serializer_js_1.serializeList;
+      } });
+      Object.defineProperty(exports, "serializeItem", { enumerable: true, get: function() {
+        return serializer_js_1.serializeItem;
+      } });
+      Object.defineProperty(exports, "serializeInnerList", { enumerable: true, get: function() {
+        return serializer_js_1.serializeInnerList;
+      } });
+      Object.defineProperty(exports, "serializeBareItem", { enumerable: true, get: function() {
+        return serializer_js_1.serializeBareItem;
+      } });
+      Object.defineProperty(exports, "serializeParameters", { enumerable: true, get: function() {
+        return serializer_js_1.serializeParameters;
+      } });
+      Object.defineProperty(exports, "SerializeError", { enumerable: true, get: function() {
+        return serializer_js_1.SerializeError;
+      } });
+      var token_js_1 = require_token();
+      Object.defineProperty(exports, "Token", { enumerable: true, get: function() {
+        return token_js_1.Token;
+      } });
+      var types_js_1 = require_types2();
+      Object.defineProperty(exports, "ByteSequence", { enumerable: true, get: function() {
+        return types_js_1.ByteSequence;
+      } });
+      var util_js_1 = require_util();
+      Object.defineProperty(exports, "isInnerList", { enumerable: true, get: function() {
+        return util_js_1.isInnerList;
+      } });
+      Object.defineProperty(exports, "isByteSequence", { enumerable: true, get: function() {
+        return util_js_1.isByteSequence;
+      } });
+      Object.defineProperty(exports, "isValidTokenStr", { enumerable: true, get: function() {
+        return util_js_1.isValidTokenStr;
+      } });
+      Object.defineProperty(exports, "isValidKeyStr", { enumerable: true, get: function() {
+        return util_js_1.isValidKeyStr;
+      } });
+      var token_js_2 = require_token();
+      function bareItemToString(value) {
+        if (typeof value === "string") {
+          return value;
+        }
+        if (value instanceof token_js_2.Token) {
+          return value.toString();
+        }
+        throw new TypeError(`Expected a Structured Field String or Token, got ${typeof value}`);
+      }
+    }
+  });
+
   // node_modules/@hellocoop/httpsig/dist/utils/signature.js
   var require_signature = __commonJS({
     "node_modules/@hellocoop/httpsig/dist/utils/signature.js"(exports) {
@@ -355,6 +963,7 @@
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.generateSignatureBase = generateSignatureBase;
       exports.generateSignatureInputHeader = generateSignatureInputHeader;
+      exports.generateSignatureParams = generateSignatureParams;
       exports.generateSignatureKeyHeader = generateSignatureKeyHeader;
       exports.generateSignatureHeader = generateSignatureHeader;
       exports.generateContentDigest = generateContentDigest;
@@ -371,6 +980,18 @@
       exports.parseSignature = parseSignature;
       var base64_js_1 = require_base64();
       var errors_js_1 = require_errors();
+      var structured_fields_js_1 = require_structured_fields();
+      function buildSignatureParams(components, created) {
+        const items = components.map((component) => [
+          component,
+          /* @__PURE__ */ new Map()
+        ]);
+        return [items, /* @__PURE__ */ new Map([["created", created]])];
+      }
+      function parseFailure(field, error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return new Error(`Invalid ${field} format: ${detail}`);
+      }
       function generateSignatureBase(components, componentValues) {
         const lines = [];
         for (const component of components) {
@@ -383,10 +1004,15 @@
         return lines.join("\n");
       }
       function generateSignatureInputHeader(label, components, created) {
-        const componentList = components.map((c) => `"${c}"`).join(" ");
-        return `${label}=(${componentList});created=${created}`;
+        return (0, structured_fields_js_1.serializeDictionary)(/* @__PURE__ */ new Map([[label, buildSignatureParams(components, created)]]));
+      }
+      function generateSignatureParams(components, created) {
+        return (0, structured_fields_js_1.serializeInnerList)(buildSignatureParams(components, created));
       }
       function generateSignatureKeyHeader(label, signatureKey, publicJwk2) {
+        const oneMember = (scheme, params) => (0, structured_fields_js_1.serializeDictionary)(/* @__PURE__ */ new Map([
+          [label, [new structured_fields_js_1.Token(scheme), new Map(params)]]
+        ]));
         if (signatureKey.type === "hwk") {
           if (!publicJwk2) {
             throw new Error("Public JWK required for hwk signature key type");
@@ -395,40 +1021,46 @@
             throw new Error("Public JWK missing required alg member for hwk signature key type");
           }
           const params = [
-            `alg="${publicJwk2.alg}"`,
-            `kty="${publicJwk2.kty}"`
+            ["alg", publicJwk2.alg],
+            ["kty", publicJwk2.kty]
           ];
           if (publicJwk2.crv)
-            params.push(`crv="${publicJwk2.crv}"`);
+            params.push(["crv", publicJwk2.crv]);
           if (publicJwk2.x)
-            params.push(`x="${publicJwk2.x}"`);
+            params.push(["x", publicJwk2.x]);
           if (publicJwk2.y)
-            params.push(`y="${publicJwk2.y}"`);
+            params.push(["y", publicJwk2.y]);
           if (publicJwk2.n)
-            params.push(`n="${publicJwk2.n}"`);
+            params.push(["n", publicJwk2.n]);
           if (publicJwk2.e)
-            params.push(`e="${publicJwk2.e}"`);
-          return `${label}=hwk;${params.join(";")}`;
+            params.push(["e", publicJwk2.e]);
+          return oneMember("hwk", params);
         }
         if (signatureKey.type === "jwt") {
-          return `${label}=jwt;jwt="${signatureKey.jwt}"`;
+          return oneMember("jwt", [["jwt", signatureKey.jwt]]);
         }
         if (signatureKey.type === "jkt_jwt") {
-          return `${label}=jkt-jwt;jwt="${signatureKey.jwt}"`;
+          return oneMember("jkt-jwt", [["jwt", signatureKey.jwt]]);
         }
         if (signatureKey.type === "jwks_uri") {
-          const params = [
-            `id="${signatureKey.id}"`,
-            `dwk="${signatureKey.dwk}"`,
-            `kid="${signatureKey.kid}"`
-          ];
-          return `${label}=jwks_uri;${params.join(";")}`;
+          return oneMember("jwks_uri", [
+            ["id", signatureKey.id],
+            ["dwk", signatureKey.dwk],
+            ["kid", signatureKey.kid]
+          ]);
         }
         throw new Error(`Unsupported signature key type: ${signatureKey.type}`);
       }
       function generateSignatureHeader(label, signature) {
-        const encoded = (0, base64_js_1.base64Encode)(signature);
-        return `${label}=:${encoded}:`;
+        return (0, structured_fields_js_1.serializeDictionary)(/* @__PURE__ */ new Map([
+          [
+            label,
+            [
+              new structured_fields_js_1.ByteSequence((0, base64_js_1.base64Encode)(signature)),
+              /* @__PURE__ */ new Map()
+            ]
+          ]
+        ]));
       }
       async function generateContentDigest(body) {
         let bytes;
@@ -441,65 +1073,73 @@
         } else if (Buffer.isBuffer(body)) {
           bytes = new Uint8Array(body);
         } else {
-          bytes = new TextEncoder().encode(String(body));
+          throw new Error(`Cannot generate content-digest for body type: ${body?.constructor?.name ?? typeof body}`);
         }
         const hash = await (0, base64_js_1.sha256)(bytes);
         const encoded = (0, base64_js_1.base64Encode)(hash);
         return `sha-256=:${encoded}:`;
       }
       function parseSignatureInput(header) {
+        let dictionary;
+        try {
+          dictionary = (0, structured_fields_js_1.parseDictionary)(header);
+        } catch (error) {
+          throw parseFailure("Signature-Input", error);
+        }
         const results = [];
-        const parts = header.split(",").map((p) => p.trim());
-        for (const part of parts) {
-          const match = part.match(/^([^=]+)=\(([^)]*)\);(.+)$/);
-          if (!match) {
-            throw new Error(`Invalid Signature-Input format: ${part}`);
+        for (const [label, member] of dictionary) {
+          if (!(0, structured_fields_js_1.isInnerList)(member)) {
+            throw new Error(`Invalid Signature-Input format: member "${label}" is not an Inner List of covered components`);
           }
-          const label = match[1].trim();
-          const componentsStr = match[2];
-          const paramsStr = match[3];
-          const components = componentsStr.split(/\s+/).map((c) => c.replace(/"/g, "")).filter((c) => c);
-          const params = {};
-          const paramPairs = paramsStr.split(";").map((p) => p.trim());
-          for (const pair of paramPairs) {
-            const [key, value] = pair.split("=").map((s) => s.trim());
-            if (key === "created") {
-              params.created = parseInt(value, 10);
-            } else {
-              params[key] = value;
+          const [items, parameters] = member;
+          const components = [];
+          for (const [bareItem, itemParameters] of items) {
+            if (typeof bareItem !== "string") {
+              throw new Error("Invalid Signature-Input format: a covered component identifier must be a String");
             }
+            if (itemParameters.size > 0) {
+              throw new Error(`Unsupported component parameters on "${bareItem}" in Signature-Input`);
+            }
+            components.push(bareItem);
           }
-          if (!params.created) {
+          const params = {};
+          for (const [key, value] of parameters) {
+            params[key] = value;
+          }
+          if (typeof params.created !== "number") {
             throw new Error("Signature-Input missing required parameter: created");
           }
-          results.push({ label, components, params });
+          results.push({
+            label,
+            components,
+            params,
+            signatureParams: member
+          });
         }
         return results;
       }
       function parseSignatureKey(header) {
-        const trimmed = header.trim();
-        let inQuote = false;
-        for (let i = 0; i < trimmed.length; i++) {
-          if (trimmed[i] === '"' && (i === 0 || trimmed[i - 1] !== "\\")) {
-            inQuote = !inQuote;
-          } else if (trimmed[i] === "," && !inQuote) {
-            throw new Error("Invalid Signature-Key: must have exactly one dictionary member");
-          }
+        const malformed = new Error("Invalid Signature-Key: must be RFC 8941 Dictionary with format label=scheme;params");
+        let dictionary;
+        try {
+          dictionary = (0, structured_fields_js_1.parseDictionary)(header);
+        } catch {
+          throw malformed;
         }
-        const match = trimmed.match(/^([\w-]+)=([\w-]+)(.*)$/);
-        if (!match) {
-          throw new Error("Invalid Signature-Key: must be RFC 8941 Dictionary with format label=scheme;params");
+        if (dictionary.size !== 1) {
+          throw new Error("Invalid Signature-Key: must have exactly one dictionary member");
         }
-        const label = match[1];
-        const scheme = match[2];
-        const paramsStr = match[3];
+        const [label, member] = [...dictionary][0];
+        if ((0, structured_fields_js_1.isInnerList)(member) || !(member[0] instanceof structured_fields_js_1.Token)) {
+          throw malformed;
+        }
+        const scheme = member[0].toString();
         const params = {};
-        if (paramsStr) {
-          const paramMatches = paramsStr.matchAll(/;([\w-]+)=(?:"([^"]*)"|(\w+))/g);
-          for (const paramMatch of paramMatches) {
-            const key = paramMatch[1];
-            const value = paramMatch[2] !== void 0 ? paramMatch[2] : paramMatch[3];
-            params[key] = value;
+        for (const [key, value] of member[1]) {
+          try {
+            params[key] = (0, structured_fields_js_1.bareItemToString)(value);
+          } catch {
+            throw (0, errors_js_1.invalidKey)(`Signature-Key ${key} parameter must be a String or Token`);
           }
         }
         if (!["hwk", "jwt", "jkt-jwt", "jwks_uri"].includes(scheme)) {
@@ -560,20 +1200,29 @@
         throw (0, errors_js_1.unsupportedScheme)(`Unsupported Signature-Key scheme: ${scheme}`);
       }
       function generateSignatureErrorHeader(signatureError) {
-        const parts = [`error=${signatureError.error}`];
+        const dictionary = /* @__PURE__ */ new Map([
+          ["error", [new structured_fields_js_1.Token(signatureError.error), /* @__PURE__ */ new Map()]]
+        ]);
         if (signatureError.required_input) {
-          const inputList = signatureError.required_input.map((c) => `"${c}"`).join(" ");
-          parts.push(`required_input=(${inputList})`);
+          dictionary.set("required_input", [
+            signatureError.required_input.map((c) => [c, /* @__PURE__ */ new Map()]),
+            /* @__PURE__ */ new Map()
+          ]);
         }
-        return parts.join(", ");
+        return (0, structured_fields_js_1.serializeDictionary)(dictionary);
       }
       function parseSignatureError(header) {
-        const trimmed = header.trim();
-        const errorMatch = trimmed.match(/error=([\w]+)/);
-        if (!errorMatch) {
+        let dictionary;
+        try {
+          dictionary = (0, structured_fields_js_1.parseDictionary)(header);
+        } catch (error2) {
+          throw parseFailure("Signature-Error", error2);
+        }
+        const errorMember = dictionary.get("error");
+        if (errorMember === void 0 || (0, structured_fields_js_1.isInnerList)(errorMember)) {
           throw new Error("Invalid Signature-Error: missing error member");
         }
-        const error = errorMatch[1];
+        const error = (0, structured_fields_js_1.bareItemToString)(errorMember[0]);
         const validCodes = [
           "unsupported_algorithm",
           "unsupported_scheme",
@@ -591,22 +1240,25 @@
           throw new Error(`Invalid Signature-Error code: ${error}`);
         }
         const result = { error };
-        const inputMatch = trimmed.match(/required_input=\(([^)]*)\)/);
-        if (inputMatch) {
-          result.required_input = inputMatch[1].split(/\s+/).map((c) => c.replace(/"/g, "")).filter((c) => c);
+        const inputMember = dictionary.get("required_input");
+        if (inputMember !== void 0) {
+          if (!(0, structured_fields_js_1.isInnerList)(inputMember)) {
+            throw new Error("Invalid Signature-Error: required_input must be an Inner List");
+          }
+          result.required_input = inputMember[0].map(([component]) => (0, structured_fields_js_1.bareItemToString)(component));
         }
         return result;
       }
       function generateTokenList(values) {
         for (const value of values) {
-          if (!/^[A-Za-z*][A-Za-z0-9!#$%&'*+\-.^_`|~:/]*$/.test(value)) {
+          if (!(0, structured_fields_js_1.isValidTokenStr)(value)) {
             throw new Error(`Value is not a valid Structured Field Token: ${value}`);
           }
         }
-        return values.join(", ");
+        return (0, structured_fields_js_1.serializeList)(values.map((value) => [new structured_fields_js_1.Token(value), /* @__PURE__ */ new Map()]));
       }
       function parseTokenList(header) {
-        return header.split(",").map((v) => v.trim()).filter((v) => /^[A-Za-z*][A-Za-z0-9!#$%&'*+\-.^_`|~:/]*$/.test(v));
+        return (0, structured_fields_js_1.parseList)(header).filter((member) => !(0, structured_fields_js_1.isInnerList)(member)).map(([bareItem]) => bareItem).filter((bareItem) => bareItem instanceof structured_fields_js_1.Token).map((token) => token.toString());
       }
       function generateAcceptSignatureSchemeHeader(schemes) {
         return generateTokenList(schemes);
@@ -622,52 +1274,61 @@
       }
       function generateAcceptSignatureHeader(params) {
         const { label = "sig", components, alg, tag } = params;
-        const componentList = components.map((c) => `"${c}"`).join(" ");
-        let header = `${label}=(${componentList})`;
+        const parameters = /* @__PURE__ */ new Map();
         if (alg) {
-          header += `;alg="${alg}"`;
+          parameters.set("alg", alg);
         }
         if (tag) {
-          header += `;tag="${tag}"`;
+          parameters.set("tag", tag);
         }
-        return header;
+        const innerList = [
+          components.map((c) => [c, /* @__PURE__ */ new Map()]),
+          parameters
+        ];
+        return (0, structured_fields_js_1.serializeDictionary)(/* @__PURE__ */ new Map([[label, innerList]]));
       }
       function parseAcceptSignature(header) {
-        const trimmed = header.trim();
-        const match = trimmed.match(/^([\w-]+)=\(([^)]*)\)(.*)$/);
-        if (!match) {
-          throw new Error("Invalid Accept-Signature format");
+        const malformed = new Error("Invalid Accept-Signature format");
+        let dictionary;
+        try {
+          dictionary = (0, structured_fields_js_1.parseDictionary)(header);
+        } catch {
+          throw malformed;
         }
-        const label = match[1];
-        const componentsStr = match[2];
-        const paramsStr = match[3];
-        const components = componentsStr.split(/\s+/).map((c) => c.replace(/"/g, "")).filter((c) => c);
-        const result = { label, components };
-        if (paramsStr) {
-          const algMatch = paramsStr.match(/;alg="([^"]*)"/);
-          if (algMatch) {
-            result.alg = algMatch[1];
-          }
-          const tagMatch = paramsStr.match(/;tag="([^"]*)"/);
-          if (tagMatch) {
-            result.tag = tagMatch[1];
-          }
+        if (dictionary.size !== 1) {
+          throw malformed;
+        }
+        const [label, member] = [...dictionary][0];
+        if (!(0, structured_fields_js_1.isInnerList)(member)) {
+          throw malformed;
+        }
+        const result = {
+          label,
+          components: member[0].map(([component]) => (0, structured_fields_js_1.bareItemToString)(component))
+        };
+        const alg = member[1].get("alg");
+        if (alg !== void 0) {
+          result.alg = (0, structured_fields_js_1.bareItemToString)(alg);
+        }
+        const tag = member[1].get("tag");
+        if (tag !== void 0) {
+          result.tag = (0, structured_fields_js_1.bareItemToString)(tag);
         }
         return result;
       }
       function parseSignature(header) {
+        let dictionary;
+        try {
+          dictionary = (0, structured_fields_js_1.parseDictionary)(header);
+        } catch (error) {
+          throw parseFailure("Signature", error);
+        }
         const results = /* @__PURE__ */ new Map();
-        const entries = header.split(/,(?=\s*\w+=)/);
-        for (const entry of entries) {
-          const trimmed = entry.trim();
-          const match = trimmed.match(/^([^=]+)=:([^:]+):$/);
-          if (!match) {
-            throw new Error(`Invalid Signature format: ${trimmed}`);
+        for (const [label, member] of dictionary) {
+          if ((0, structured_fields_js_1.isInnerList)(member) || !(0, structured_fields_js_1.isByteSequence)(member[0])) {
+            throw new Error(`Invalid Signature format: member "${label}" is not a Byte Sequence`);
           }
-          const label = match[1].trim();
-          const base64 = match[2];
-          const signature = Buffer.from(base64, "base64");
-          results.set(label, new Uint8Array(signature));
+          results.set(label, (0, base64_js_1.base64Decode)(member[0].toBase64()));
         }
         return results;
       }
@@ -701,6 +1362,9 @@
         }
         return "application/octet-stream";
       }
+      function isDigestibleBody(body) {
+        return typeof body === "string" || body instanceof Uint8Array || body instanceof ArrayBuffer || Buffer.isBuffer(body);
+      }
       function validateComponents(components, headers) {
         for (const component of components) {
           if (component === "@signature-params" || component === "signature-key" || component === "signature-input" || component === "signature") {
@@ -718,7 +1382,7 @@
         }
       }
       async function fetch2(url, options) {
-        const { signingKey, signingCryptoKey, signatureKey, label = "sig", components: customComponents, dryRun = false, returnSent = false, method = "GET", headers: inputHeaders = {}, body, ...fetchOptions } = options;
+        const { signingKey, signingCryptoKey, signatureKey, label = "sig", components: customComponents, contentDigest = "auto", dryRun = false, returnSent = false, method = "GET", headers: inputHeaders = {}, body, ...fetchOptions } = options;
         (0, crypto_js_1.validateJwk)(signingKey);
         let privateKey;
         let algorithm;
@@ -743,6 +1407,15 @@
           const hasBody = body !== void 0 && body !== null;
           components = hasBody ? [...types_js_1.DEFAULT_COMPONENTS_BODY] : [...types_js_1.DEFAULT_COMPONENTS_GET];
         }
+        if (body !== void 0 && body !== null && contentDigest !== "omit") {
+          const digestible = isDigestibleBody(body);
+          if (!digestible && contentDigest === "require") {
+            throw new Error('contentDigest is "require" but the body cannot be digested: only string, Uint8Array, ArrayBuffer, and Buffer bodies have their exact bytes available to hash');
+          }
+          if (digestible && !components.includes("content-digest")) {
+            components.push("content-digest");
+          }
+        }
         const componentValues = /* @__PURE__ */ new Map();
         if (body !== void 0 && body !== null) {
           if (!headers.has("content-type")) {
@@ -752,8 +1425,8 @@
             }
           }
           if (components.includes("content-digest")) {
-            const contentDigest = await (0, signature_js_1.generateContentDigest)(body);
-            headers.set("content-digest", contentDigest);
+            const contentDigest2 = await (0, signature_js_1.generateContentDigest)(body);
+            headers.set("content-digest", contentDigest2);
           }
         }
         if (components.includes("signature-key")) {
@@ -798,9 +1471,7 @@
         const created = Math.floor(Date.now() / 1e3);
         const signatureInputHeader = (0, signature_js_1.generateSignatureInputHeader)(label, components, created);
         headers.set("signature-input", signatureInputHeader);
-        const componentList = components.map((c) => `"${c}"`).join(" ");
-        const signatureParams = `(${componentList});created=${created}`;
-        componentValues.set("@signature-params", signatureParams);
+        componentValues.set("@signature-params", (0, signature_js_1.generateSignatureParams)(components, created));
         components.push("@signature-params");
         const signatureBase = (0, signature_js_1.generateSignatureBase)(components, componentValues);
         const signatureBaseBytes = new TextEncoder().encode(signatureBase);
@@ -996,6 +1667,7 @@
       exports.verify = verify;
       var crypto_js_1 = require_crypto();
       var signature_js_1 = require_signature();
+      var structured_fields_js_1 = require_structured_fields();
       var base64_js_1 = require_base64();
       var thumbprint_js_1 = require_thumbprint();
       var cache_js_1 = require_cache();
@@ -1202,7 +1874,8 @@
           maxClockSkew = 60,
           jwksCacheTtl = 36e5,
           // 1 hour
-          supportedAlgorithms
+          supportedAlgorithms,
+          requireContentDigest = false
         } = options;
         const accepted = supportedAlgorithms ?? crypto_js_1.SUPPORTED_ALGORITHMS;
         try {
@@ -1294,6 +1967,16 @@
           componentValues.set("@request-target", `${request.path}${queryString}`);
           componentValues.set("@path", request.path);
           componentValues.set("@query", request.query || "");
+          if (requireContentDigest && request.body !== void 0 && !components.includes("content-digest")) {
+            throw (0, errors_js_1.invalidInput)("content-digest must be a covered component on a request with a body", [
+              "@method",
+              "@authority",
+              "@path",
+              "content-digest",
+              "content-type",
+              "signature-key"
+            ]);
+          }
           if (request.body !== void 0 && components.includes("content-digest")) {
             const expectedDigest = headers.get("content-digest");
             if (!expectedDigest) {
@@ -1315,18 +1998,7 @@
             }
             componentValues.set(component, value);
           }
-          const componentList = components.map((c) => `"${c}"`).join(" ");
-          const paramPairs = Object.entries(params).map(([key, value]) => {
-            if (typeof value === "number") {
-              return `${key}=${value}`;
-            }
-            const stringValue = String(value);
-            if (stringValue.startsWith('"') && stringValue.endsWith('"')) {
-              return `${key}=${stringValue}`;
-            }
-            return `${key}="${stringValue}"`;
-          }).join(";");
-          const signatureParams = `(${componentList});${paramPairs}`;
+          const signatureParams = (0, structured_fields_js_1.serializeInnerList)(signatureInput.signatureParams);
           componentValues.set("@signature-params", signatureParams);
           const componentsWithParams = [...components, "@signature-params"];
           const signatureBase = (0, signature_js_1.generateSignatureBase)(componentsWithParams, componentValues);
@@ -1434,7 +2106,7 @@
     "node_modules/@hellocoop/httpsig/dist/index.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.DEFAULT_COMPONENTS_BODY = exports.DEFAULT_COMPONENTS_GET = exports.VALID_DERIVED_COMPONENTS = exports.calculateThumbprint = exports.SignatureVerificationError = exports.SUPPORTED_ALGORITHMS = exports.determineAlgorithm = exports.generateKeyPair = exports.parseAcceptSignatureAlg = exports.generateAcceptSignatureAlgHeader = exports.parseAcceptSignatureScheme = exports.generateAcceptSignatureSchemeHeader = exports.parseAcceptSignature = exports.generateAcceptSignatureHeader = exports.parseSignatureError = exports.generateSignatureErrorHeader = exports.nextJsPagesVerify = exports.nextJsVerify = exports.fastifyVerify = exports.expressVerify = exports.verify = void 0;
+      exports.DEFAULT_COMPONENTS_BODY = exports.DEFAULT_COMPONENTS_GET = exports.VALID_DERIVED_COMPONENTS = exports.calculateThumbprint = exports.SignatureVerificationError = exports.SUPPORTED_ALGORITHMS = exports.determineAlgorithm = exports.generateKeyPair = exports.SerializeError = exports.ParseError = exports.ByteSequence = exports.Token = exports.isValidKeyStr = exports.isValidTokenStr = exports.isByteSequence = exports.isInnerList = exports.bareItemToString = exports.serializeParameters = exports.serializeBareItem = exports.serializeInnerList = exports.serializeItem = exports.serializeList = exports.serializeDictionary = exports.parseItem = exports.parseList = exports.parseDictionary = exports.parseAcceptSignatureAlg = exports.generateAcceptSignatureAlgHeader = exports.parseAcceptSignatureScheme = exports.generateAcceptSignatureSchemeHeader = exports.parseAcceptSignature = exports.generateAcceptSignatureHeader = exports.parseSignatureError = exports.generateSignatureErrorHeader = exports.nextJsPagesVerify = exports.nextJsVerify = exports.fastifyVerify = exports.expressVerify = exports.verify = void 0;
       var fetch_js_1 = require_fetch();
       Object.defineProperty(exports, "fetch", { enumerable: true, get: function() {
         return fetch_js_1.fetch;
@@ -1480,6 +2152,61 @@
       } });
       Object.defineProperty(exports, "parseAcceptSignatureAlg", { enumerable: true, get: function() {
         return signature_js_1.parseAcceptSignatureAlg;
+      } });
+      var structured_fields_js_1 = require_structured_fields();
+      Object.defineProperty(exports, "parseDictionary", { enumerable: true, get: function() {
+        return structured_fields_js_1.parseDictionary;
+      } });
+      Object.defineProperty(exports, "parseList", { enumerable: true, get: function() {
+        return structured_fields_js_1.parseList;
+      } });
+      Object.defineProperty(exports, "parseItem", { enumerable: true, get: function() {
+        return structured_fields_js_1.parseItem;
+      } });
+      Object.defineProperty(exports, "serializeDictionary", { enumerable: true, get: function() {
+        return structured_fields_js_1.serializeDictionary;
+      } });
+      Object.defineProperty(exports, "serializeList", { enumerable: true, get: function() {
+        return structured_fields_js_1.serializeList;
+      } });
+      Object.defineProperty(exports, "serializeItem", { enumerable: true, get: function() {
+        return structured_fields_js_1.serializeItem;
+      } });
+      Object.defineProperty(exports, "serializeInnerList", { enumerable: true, get: function() {
+        return structured_fields_js_1.serializeInnerList;
+      } });
+      Object.defineProperty(exports, "serializeBareItem", { enumerable: true, get: function() {
+        return structured_fields_js_1.serializeBareItem;
+      } });
+      Object.defineProperty(exports, "serializeParameters", { enumerable: true, get: function() {
+        return structured_fields_js_1.serializeParameters;
+      } });
+      Object.defineProperty(exports, "bareItemToString", { enumerable: true, get: function() {
+        return structured_fields_js_1.bareItemToString;
+      } });
+      Object.defineProperty(exports, "isInnerList", { enumerable: true, get: function() {
+        return structured_fields_js_1.isInnerList;
+      } });
+      Object.defineProperty(exports, "isByteSequence", { enumerable: true, get: function() {
+        return structured_fields_js_1.isByteSequence;
+      } });
+      Object.defineProperty(exports, "isValidTokenStr", { enumerable: true, get: function() {
+        return structured_fields_js_1.isValidTokenStr;
+      } });
+      Object.defineProperty(exports, "isValidKeyStr", { enumerable: true, get: function() {
+        return structured_fields_js_1.isValidKeyStr;
+      } });
+      Object.defineProperty(exports, "Token", { enumerable: true, get: function() {
+        return structured_fields_js_1.Token;
+      } });
+      Object.defineProperty(exports, "ByteSequence", { enumerable: true, get: function() {
+        return structured_fields_js_1.ByteSequence;
+      } });
+      Object.defineProperty(exports, "ParseError", { enumerable: true, get: function() {
+        return structured_fields_js_1.ParseError;
+      } });
+      Object.defineProperty(exports, "SerializeError", { enumerable: true, get: function() {
+        return structured_fields_js_1.SerializeError;
       } });
       var crypto_js_1 = require_crypto();
       Object.defineProperty(exports, "generateKeyPair", { enumerable: true, get: function() {
@@ -1570,15 +2297,13 @@
     const kp = await getKeyPair();
     const pub = await publicJwk(kp);
     const hasBody = body != null;
-    const components = hasBody ? ["@method", "@authority", "@path", "content-type", "signature-key"] : ["@method", "@authority", "@path", "signature-key"];
     return (0, import_httpsig.fetch)(url, {
       method,
       headers: hasBody ? { "Content-Type": "application/json", ...headers } : headers,
       body: hasBody ? body : void 0,
       signingKey: pub,
       signingCryptoKey: kp.privateKey,
-      signatureKey: { type: "jwt", jwt },
-      components
+      signatureKey: { type: "jwt", jwt }
     });
   }
   async function bootstrap() {
@@ -1590,8 +2315,7 @@
       body: JSON.stringify({ ps: PS_DEFAULT }),
       signingKey: pub,
       signingCryptoKey: kp.privateKey,
-      signatureKey: { type: "hwk" },
-      components: ["@method", "@authority", "@path", "content-type", "signature-key"]
+      signatureKey: { type: "hwk" }
     });
     const data = await response.json();
     if (!response.ok || !data.agent_token) throw new Error(data.error || "bootstrap failed");
@@ -1630,46 +2354,69 @@
     });
     return out;
   }
-  async function startAuthFlow(pending) {
-    let agentToken = await ensureAgentToken();
-    const challenge = async () => {
-      const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: agentToken });
-      return res.status === 401 ? parseRequirement(res.headers.get("aauth-requirement"))["resource-token"] : null;
-    };
-    let resourceToken = await challenge();
-    if (!resourceToken) {
-      await bootstrap();
-      agentToken = getAgentToken();
-      resourceToken = await challenge();
-    }
-    if (!resourceToken) throw new Error("no resource_token in challenge");
-    const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json();
-    const psRes = await signedFetch(psMeta.token_endpoint, {
-      method: "POST",
-      jwt: agentToken,
-      body: JSON.stringify({ resource_token: resourceToken, capabilities: ["interaction"], prompt: "consent" })
-    });
-    if (psRes.status === 200) {
-      const body2 = await psRes.json();
-      if (!body2.auth_token) throw new Error("PS returned no auth_token");
-      return { authToken: body2.auth_token };
-    }
-    if (psRes.status !== 202) throw new Error(`PS token endpoint ${psRes.status}`);
+  async function deferToPersonServer(psRes, psMeta, pending, stage) {
     const body = await psRes.json().catch(() => ({}));
     const req = parseRequirement(psRes.headers.get("aauth-requirement"));
     const interactionUrl = req.url || body.url || psMeta.interaction_endpoint;
     const code = req.code || body.code;
     const pollUrl = new URL(psRes.headers.get("location") || body.location, PS_DEFAULT).toString();
-    savePending({ ...pending, pollUrl });
+    savePending({ ...pending, stage, pollUrl });
     window.location.href = `${interactionUrl}?code=${encodeURIComponent(code)}&callback=${encodeURIComponent(ORIGIN + "/")}`;
     return { redirecting: true };
   }
-  async function pollForAuthToken(pollUrl, agentToken, maxCycles = 40) {
+  async function obtainPersonToken(agentToken, psMeta, pending) {
+    if (!psMeta.person_token_endpoint) throw new Error("PS publishes no person_token_endpoint");
+    const res = await signedFetch(psMeta.person_token_endpoint, {
+      method: "POST",
+      jwt: agentToken,
+      body: JSON.stringify({ resource: ORIGIN })
+    });
+    if (res.status === 200) {
+      const body = await res.json();
+      if (!body.person_token) throw new Error("PS returned no person_token");
+      return { personToken: body.person_token };
+    }
+    if (res.status === 202) return deferToPersonServer(res, psMeta, pending, "person");
+    throw new Error(`PS person token endpoint ${res.status}`);
+  }
+  async function resourceTokenFor(personToken) {
+    const res = await signedFetch(`${ORIGIN}/auth/identity`, { jwt: personToken });
+    if (res.status !== 401) throw new Error(`expected an auth-token challenge, got ${res.status}`);
+    const rt = parseRequirement(res.headers.get("aauth-requirement"))["resource-token"];
+    if (!rt) throw new Error("no resource_token in challenge");
+    return rt;
+  }
+  async function obtainAuthToken(agentToken, psMeta, resourceToken, pending) {
+    const res = await signedFetch(psMeta.auth_token_endpoint, {
+      method: "POST",
+      jwt: agentToken,
+      body: JSON.stringify({ resource_token: resourceToken, capabilities: ["interaction"], prompt: "consent" })
+    });
+    if (res.status === 200) {
+      const body = await res.json();
+      if (!body.auth_token) throw new Error("PS returned no auth_token");
+      return { authToken: body.auth_token };
+    }
+    if (res.status === 202) return deferToPersonServer(res, psMeta, pending, "auth");
+    throw new Error(`PS auth token endpoint ${res.status}`);
+  }
+  async function startAuthFlow(pending) {
+    const agentToken = await ensureAgentToken();
+    const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json();
+    const person = await obtainPersonToken(agentToken, psMeta, pending);
+    if (person.redirecting) return person;
+    return finishAfterPersonToken(person.personToken, agentToken, psMeta, pending);
+  }
+  async function finishAfterPersonToken(personToken, agentToken, psMeta, pending) {
+    const resourceToken = await resourceTokenFor(personToken);
+    return obtainAuthToken(agentToken, psMeta, resourceToken, pending);
+  }
+  async function pollForToken(pollUrl, agentToken, field, maxCycles = 40) {
     for (let i = 0; i < maxCycles; i++) {
       const res = await signedFetch(pollUrl, { jwt: agentToken, headers: { Prefer: "wait=30" } });
       if (res.status === 200) {
         const body = await res.json();
-        if (body.auth_token) return body.auth_token;
+        if (body[field]) return body[field];
       } else if (res.status === 403 || res.status === 404 || res.status === 408) {
         throw new Error(`consent ${res.status}`);
       }
@@ -1699,8 +2446,16 @@
     try {
       const agentToken = getAgentToken();
       if (!agentToken) throw new Error("agent token missing after redirect");
-      const authToken = await pollForAuthToken(pending.pollUrl, agentToken);
-      await completeWithAuthToken(authToken, pending);
+      if (pending.stage === "person") {
+        const personToken = await pollForToken(pending.pollUrl, agentToken, "person_token");
+        const psMeta = await (await fetch(`${PS_DEFAULT}/.well-known/aauth-person.json`)).json();
+        const r = await finishAfterPersonToken(personToken, agentToken, psMeta, pending);
+        if (r.redirecting) return true;
+        await completeWithAuthToken(r.authToken, pending);
+      } else {
+        const authToken = await pollForToken(pending.pollUrl, agentToken, "auth_token");
+        await completeWithAuthToken(authToken, pending);
+      }
     } catch (err) {
       console.error("resume failed", err);
     }
@@ -1731,6 +2486,14 @@
   });
   var $ = (id) => document.getElementById(id);
   var esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  var ACCESS_MODE_TITLES = {
+    "agent-token": "Authorizes on the agent\u2019s identity alone",
+    "person-token": "Authorizes on the person\u2019s identity alone",
+    "session-token": "Runs its own authorization and issues a session token",
+    "auth-token": "Needs an auth token from your person server",
+    "per-call": "Authorizes each call individually, against that call\u2019s parameters"
+  };
+  var accessModeTitle = (mode) => ACCESS_MODE_TITLES[mode] ?? (mode ? `Access mode \u201C${mode}\u201D \u2014 not one this page knows; agents call the resource and read its AAuth-Requirement` : "No access mode declared \u2014 defaults to agent-token");
   function renderResources(index) {
     const list = $("resources");
     const items = index.resources || [];
@@ -1743,7 +2506,7 @@
     <div class="card">
       <div class="card-head">
         <a class="name" href="${esc(r.issuer)}" target="_blank" rel="noopener">${esc(r.name)}</a>
-        <span class="badge">${esc(r.access_mode)}</span>
+        <span class="badge" title="${esc(accessModeTitle(r.access_mode))}">${esc(r.access_mode || "agent-token")}</span>
       </div>
       <p class="desc">${esc(r.description)}</p>
       <div class="host">${esc(r.issuer)}</div>

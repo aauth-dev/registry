@@ -51,6 +51,10 @@ check "has at least one key" \
   "$(echo "$JWKS" | jq -e '.keys | length > 0' 2>/dev/null || echo false)"
 check "key is OKP/Ed25519" \
   "$(echo "$JWKS" | jq -e '.keys[0].kty == "OKP" and .keys[0].crv == "Ed25519"' 2>/dev/null || echo false)"
+# AAuth §Signature Algorithms: every published JWK carries a fully-specified
+# alg, and the polymorphic "EdDSA" MUST NOT be used.
+check "key alg is fully-specified Ed25519 (not EdDSA)" \
+  "$(echo "$JWKS" | jq -e '.keys[0].alg == "Ed25519"' 2>/dev/null || echo false)"
 check "no private key material" \
   "$(echo "$JWKS" | jq -e '.keys[0].d == null' 2>/dev/null || echo false)"
 echo

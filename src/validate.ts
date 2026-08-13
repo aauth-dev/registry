@@ -1,5 +1,11 @@
 import type { AccessMode, RegistryEntry } from './types'
-import { ACCESS_MODES, FETCH_TIMEOUT_MS, MAX_DESCRIPTION, MAX_METADATA_BYTES } from './types'
+import {
+  ACCESS_MODES,
+  DEFAULT_ACCESS_MODE,
+  FETCH_TIMEOUT_MS,
+  MAX_DESCRIPTION,
+  MAX_METADATA_BYTES,
+} from './types'
 
 export interface ResourceMetadata {
   issuer: string
@@ -57,7 +63,20 @@ function isIpLiteral(host: string): boolean {
 // fetches the fixed well-known path on the submitted host, with no
 // redirects, a timeout, and a size cap (SSRF hardening). Enforces
 // issuer === origin (anti-spoof), a present + bounded description, and
-// a valid access_mode (or absent).
+// an access_mode drawn from ACCESS_MODES (or absent).
+//
+// REGISTRY-SIDE ONLY. This is the registry's admission policy for its own
+// directory, not agent behaviour. `access_mode` is an IANA "Specification
+// Required" registry (AAuth -11), so new values will appear before this
+// list knows them; declining to LIST a resource whose declared mode we do
+// not recognize is an editorial choice about what the directory vouches
+// for, and a submitter can re-submit once the value is registered here.
+//
+// It MUST NOT leak into agent-side code. The protocol requires an agent
+// meeting an unrecognized `access_mode` to proceed exactly as it would with
+// no declaration — call the resource and read the AAuth-Requirement it gets
+// back. Nothing on this service's agent-provider or web-agent paths reads
+// `access_mode` at all, and the UI renders unknown values verbatim.
 export async function fetchResourceMetadata(origin: string, host: string): Promise<FetchResult> {
   const url = `${origin}/.well-known/aauth-resource.json`
 
@@ -122,7 +141,7 @@ export function buildEntry(
     issuer: meta.issuer,
     name: meta.name?.trim() || meta.issuer,
     description: meta.description!.trim(),
-    access_mode: (meta.access_mode as AccessMode) ?? 'agent-token',
+    access_mode: (meta.access_mode as AccessMode) ?? DEFAULT_ACCESS_MODE,
     ...(meta.documentation_uri ? { documentation_uri: meta.documentation_uri } : {}),
     added: new Date().toISOString(),
     submitted_by,

@@ -6,7 +6,14 @@
 
 import type { Context } from 'hono'
 import { verify as httpSigVerify } from '@hellocoop/httpsig'
-import { getPublicJWK, importSigningKey, generateJTI, sanitizeCnfJwk, signJWT } from './crypto'
+import {
+  getPublicJWK,
+  importSigningKey,
+  generateJTI,
+  sanitizeCnfJwk,
+  signJWT,
+  SIGNING_ALG,
+} from './crypto'
 import type { Env } from './types'
 
 type HonoEnv = { Bindings: Env }
@@ -33,14 +40,20 @@ export interface SigHwkResult {
 export async function verifySigHwk(c: Context<HonoEnv>): Promise<SigHwkResult | Response> {
   const rawBody = await c.req.text()
   const url = new URL(c.req.url)
-  const sigResult = await httpSigVerify({
-    method: c.req.method,
-    authority: url.host,
-    path: url.pathname,
-    query: url.search.replace(/^\?/, ''),
-    headers: c.req.raw.headers,
-    body: rawBody,
-  })
+  // /bootstrap mints agent tokens, so it enforces the AAuth HTTPSig profile
+  // (§10.3): a body-carrying request MUST cover content-digest. The
+  // /resources API is the resource role and stays exempt (agent-token.ts).
+  const sigResult = await httpSigVerify(
+    {
+      method: c.req.method,
+      authority: url.host,
+      path: url.pathname,
+      query: url.search.replace(/^\?/, ''),
+      headers: c.req.raw.headers,
+      body: rawBody,
+    },
+    { requireContentDigest: true },
+  )
   if (!sigResult.verified) {
     return c.json({ error: `signature verification failed: ${sigResult.error || 'unknown'}` }, 401) as unknown as Response
   }
@@ -91,7 +104,9 @@ export async function mintAgentToken(
   const publicJwk = await getPublicJWK(env.SIGNING_KEY)
   const now = Math.floor(Date.now() / 1000)
 
-  const header = { alg: 'Ed25519', typ: 'aa-agent+jwt', kid: publicJwk.kid }
+  // alg is fully specified (AAuth -11 §Agent Token Structure); cnf.jwk gets
+  // its own fully-specified alg from sanitizeCnfJwk.
+  const header = { alg: SIGNING_ALG, typ: 'aa-agent+jwt', kid: publicJwk.kid }
   const payload: Record<string, unknown> = {
     iss: origin,
     dwk: 'aauth-agent.json',
